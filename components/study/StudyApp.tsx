@@ -496,27 +496,6 @@ export function StudyApp() {
                 })}
               </div>
 
-              <div className="mt-4 rounded-2xl bg-gradient-to-br from-[#FFE5F5] to-[#FFF0FA] border border-[#F5D0E8] p-4">
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl">🍽️</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-extrabold text-[#C2185B]">
-                      Hungry? Skip the delivery fees
-                    </p>
-                    <p className="text-[11px] text-[#5C574F] mt-1">
-                      Order food on Ownly while you ride
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => redirectToOwnly("vehicle_selection_snippet")}
-                    className="shrink-0 rounded-full bg-[#E91E8C] px-3 py-1.5 text-[10px] font-bold text-white shadow active:scale-95 transition-transform"
-                  >
-                    Order
-                  </button>
-                </div>
-              </div>
-
               <div className="mt-6">
                 <button
                   type="button"
@@ -551,25 +530,6 @@ export function StudyApp() {
                   <div className="min-w-0 flex-1">
                     <p className="text-base font-bold">{captain.name}</p>
                     <p className="text-sm text-[#5C574F]">⭐ {captain.rating} · {captain.plate}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 rounded-2xl bg-gradient-to-r from-[#E91E8C] to-[#C2185B] p-5 text-white shadow-lg">
-                <div className="flex items-start gap-3">
-                  <span className="text-3xl">🍽️</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-extrabold">Waiting? Order food on Ownly</p>
-                    <p className="mt-1 text-xs font-semibold text-[#FFC80A]">
-                      Zero delivery fees · Track your meal like your ride
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => redirectToOwnly("captain_found_ad")}
-                      className="mt-3 w-full rounded-xl bg-white py-3 text-sm font-extrabold text-[#E91E8C] active:scale-[0.98] transition-transform"
-                    >
-                      Try Ownly now →
-                    </button>
                   </div>
                 </div>
               </div>
@@ -616,25 +576,10 @@ export function StudyApp() {
                 </div>
               </div>
 
-              <div className="mt-4 rounded-2xl border-2 border-[#F5D0E8] bg-gradient-to-br from-[#FFE5F5] to-white p-4">
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl">🍽️</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-extrabold text-[#C2185B]">
-                      Almost there! Order food for when you arrive
-                    </p>
-                    <p className="mt-1 text-[11px] text-[#5C574F]">
-                      Get your meal delivered at your destination
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => redirectToOwnly("ride_in_progress_ad")}
-                      className="mt-3 w-full rounded-xl bg-gradient-to-r from-[#E91E8C] to-[#C2185B] py-2.5 text-xs font-extrabold text-white active:scale-[0.98] transition-transform"
-                    >
-                      Order on Ownly →
-                    </button>
-                  </div>
-                </div>
+              <div className="mt-4 rounded-2xl bg-[#F5F3EE] p-4">
+                <p className="text-xs text-[#5C574F] text-center">
+                  Your ride is in progress. Sit back and relax! 🚗
+                </p>
               </div>
             </>
           )}
