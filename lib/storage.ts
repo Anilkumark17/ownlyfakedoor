@@ -8,11 +8,12 @@ export type RapidoProfile = {
   name: string;
   phone: string;
   area: string;
+  username?: string;
   savedAt: number;
 };
 
 export type AuthState =
-  | { role: "customer"; email: string; profile: RapidoProfile }
+  | { role: "customer"; username: string; profile: RapidoProfile }
   | { role: "admin"; email: string };
 
 export type BehaviorSession = {
@@ -38,38 +39,38 @@ function safeParse<T>(raw: string | null, fallback: T): T {
 export function loadRapidoProfile(): RapidoProfile | null {
   if (typeof window === "undefined") return null;
   return safeParse<RapidoProfile | null>(
-    localStorage.getItem(STORAGE_KEYS.rapidoProfile),
+    localStorage.getItem(STORAGE_KEYS.PROFILE),
     null,
   );
 }
 
 export function saveRapidoProfile(profile: RapidoProfile): void {
-  localStorage.setItem(STORAGE_KEYS.rapidoProfile, JSON.stringify(profile));
+  localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(profile));
 }
 
 export function loadAuth(): AuthState | null {
   if (typeof window === "undefined") return null;
-  return safeParse<AuthState | null>(localStorage.getItem(STORAGE_KEYS.auth), null);
+  return safeParse<AuthState | null>(localStorage.getItem(STORAGE_KEYS.AUTH), null);
 }
 
 export function saveAuth(auth: AuthState): void {
-  localStorage.setItem(STORAGE_KEYS.auth, JSON.stringify(auth));
+  localStorage.setItem(STORAGE_KEYS.AUTH, JSON.stringify(auth));
 }
 
 export function clearAuth(): void {
-  localStorage.removeItem(STORAGE_KEYS.auth);
+  localStorage.removeItem(STORAGE_KEYS.AUTH);
 }
 
 export function loadAllSessions(): BehaviorSession[] {
   if (typeof window === "undefined") return [];
   return safeParse<BehaviorSession[]>(
-    localStorage.getItem(STORAGE_KEYS.sessions),
+    localStorage.getItem(STORAGE_KEYS.SESSIONS),
     [],
   );
 }
 
 function persistSessions(sessions: BehaviorSession[]): void {
-  localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify(sessions));
+  localStorage.setItem(STORAGE_KEYS.SESSIONS, JSON.stringify(sessions));
 }
 
 export function createSession(profile: RapidoProfile, riderEmail: string): BehaviorSession {
@@ -86,13 +87,13 @@ export function createSession(profile: RapidoProfile, riderEmail: string): Behav
   const all = loadAllSessions();
   all.push(session);
   persistSessions(all);
-  localStorage.setItem(STORAGE_KEYS.activeSession, session.id);
+  localStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, session.id);
   return session;
 }
 
 export function getActiveSessionId(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(STORAGE_KEYS.activeSession);
+  return localStorage.getItem(STORAGE_KEYS.ACTIVE_SESSION);
 }
 
 export function loadActiveSession(): BehaviorSession | null {
@@ -144,6 +145,6 @@ export function markExploredOwnly(sessionId: string): BehaviorSession | null {
 }
 
 export function resetActiveSession(profile: RapidoProfile, riderEmail: string): BehaviorSession {
-  localStorage.removeItem(STORAGE_KEYS.activeSession);
+  localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
   return createSession(profile, riderEmail);
 }

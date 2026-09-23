@@ -1,21 +1,26 @@
 export const OWNLY_EXPLORE_URL = "https://how-youth-order-food.netlify.app/";
 
-export const ADMIN_EMAIL = "anil@gmail.com";
-export const ADMIN_PASSWORD = "Anil@1678";
+// Admin credentials
+export const ADMIN_EMAIL = "admin@gmail.com";
+export const ADMIN_PASSWORD = "Admin@123";
 
+// Storage keys
 export const STORAGE_KEYS = {
-  rapidoProfile: "ownly_rapido_profile",
-  auth: "ownly_auth",
-  sessions: "ownly_behavior_sessions",
-  activeSession: "ownly_active_session_id",
+  AUTH: "ownly_auth",
+  PROFILE: "ownly_rapido_profile",
+  ACTIVE_SESSION: "ownly_active_session",
+  SESSIONS: "ownly_behavior_sessions",
 } as const;
 
+// Brand colors
 export const BRAND = {
   yellow: "#FFC80A",
-  black: "#16140F",
-  bg: "#FAF8F3",
+  dark: "#16140F",
+  pink: "#E91E8C",
+  pinkDark: "#C2185B",
   green: "#1C7A4E",
-  greenBg: "#E7F4EC",
-  red: "#B23B2E",
-  redBg: "#FBE7E4",
+  bg: "#FAF8F3",
+  bgDark: "#F5F3EE",
+  border: "#EDE9E0",
+  text: "#5C574F",
 } as const;

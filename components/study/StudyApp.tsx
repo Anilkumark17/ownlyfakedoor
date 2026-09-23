@@ -3,14 +3,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { OWNLY_EXPLORE_URL } from "@/lib/constants";
-import {
-  appendSessionEvent,
-  getActiveSessionId,
-  loadAuth,
-  markExploredOwnly,
-  resetActiveSession,
-  type BehaviorSession,
-} from "@/lib/storage";
 
 type RideType = "auto" | "bike" | "cab";
 type JourneyState =
@@ -43,12 +35,13 @@ const CAPTAIN_NAMES = ["Ravi Kumar", "Suresh Reddy", "Anil Sharma", "Venkat Rao"
 
 export function StudyApp() {
   const router = useRouter();
-  const [session, setSession] = useState<BehaviorSession | null>(null);
+  const [sessionId, setSessionId] = useState<string>("");
+  const [profile, setProfile] = useState({ name: "Rider", phone: "9XXXXXXXXX", area: "Gachibowli", username: "Rider" });
   const [journeyState, setJourneyState] = useState<JourneyState>("home");
   const [topBannerVisible, setTopBannerVisible] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDestination, setSelectedDestination] = useState<typeof DESTINATIONS[0] | null>(null);
-  const [selectedRideType, setSelectedRideType] = useState<RideType>("auto");
+  const [selectedRideType, setSelectedRideType] = useState<RideType>("bike");
   const [showOwnlyInline, setShowOwnlyInline] = useState(false);
   const [captain, setCaptain] = useState<{
     name: string;
@@ -59,23 +52,91 @@ export function StudyApp() {
   const [rideProgress, setRideProgress] = useState(0);
   const progressInterval = useRef<NodeJS.Timeout | null>(null);
 
+  // Check authentication
   useEffect(() => {
-    const auth = loadAuth();
-    if (!auth || auth.role !== "customer") {
+    const auth = localStorage.getItem("ownly_auth");
+    if (!auth) {
       router.replace("/login");
       return;
     }
-    const s = resetActiveSession(auth.profile, auth.email);
-    setSession(s);
+
+    try {
+      const authData = JSON.parse(auth);
+      if (authData.role !== "customer") {
+        router.replace("/login");
+        return;
+      }
+
+      const savedProfile = localStorage.getItem("ownly_rapido_profile");
+      if (savedProfile) {
+        setProfile(JSON.parse(savedProfile));
+      }
+    } catch {
+      router.replace("/login");
+    }
   }, [router]);
 
+  // Initialize session
   useEffect(() => {
-    if (topBannerVisible && session) {
-      appendSessionEvent(session.id, { type: "banner_impression", at: Date.now() });
-    }
-  }, [topBannerVisible, session]);
+    if (!profile.username || profile.username === "Rider") return;
 
-  // Show inline Ownly card after 3s on home
+    const initSession = async () => {
+      const sid = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      setSessionId(sid);
+
+      console.log("Creating session:", sid, profile);
+
+      try {
+        const response = await fetch("/api/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: sid,
+            profile,
+            startedAt: Date.now(),
+          }),
+        });
+        
+        const data = await response.json();
+        console.log("Session created:", data);
+      } catch (error) {
+        console.error("Failed to create session:", error);
+      }
+    };
+
+    initSession();
+  }, [profile]);
+
+  const logEvent = async (event: any) => {
+    if (!sessionId) {
+      console.warn("No session ID, skipping event:", event.type);
+      return;
+    }
+    
+    console.log("Logging event:", event.type, sessionId);
+    
+    try {
+      const response = await fetch("/api/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          event: { ...event, at: Date.now() },
+        }),
+      });
+      const data = await response.json();
+      console.log("Event logged:", data);
+    } catch (error) {
+      console.error("Failed to log event:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (topBannerVisible && sessionId) {
+      logEvent({ type: "banner_impression" });
+    }
+  }, [topBannerVisible, sessionId]);
+
   useEffect(() => {
     if (journeyState === "home" && !showOwnlyInline) {
       const timer = setTimeout(() => setShowOwnlyInline(true), 3000);
@@ -83,38 +144,35 @@ export function StudyApp() {
     }
   }, [journeyState, showOwnlyInline]);
 
-  // Auto-find captain after search
   useEffect(() => {
     if (journeyState === "searching_captain") {
       const timer = setTimeout(() => {
         const randomCaptain = CAPTAIN_NAMES[Math.floor(Math.random() * CAPTAIN_NAMES.length)];
-        setCaptain({
+        const captainData = {
           name: randomCaptain,
           rating: (4.5 + Math.random() * 0.4).toFixed(1),
           plate: `TS 09 ${Math.floor(Math.random() * 9000) + 1000}`,
           phone: `+91 ${Math.floor(Math.random() * 9000000000) + 1000000000}`,
-        });
+        };
+        setCaptain(captainData);
         setJourneyState("captain_found");
-        const sid = getActiveSessionId();
-        if (sid) {
-          appendSessionEvent(sid, {
-            type: "ride_search_ad_view",
-            at: Date.now(),
-            adId: "captain_found_food_ad",
-          });
-        }
+        logEvent({ 
+          type: "captain_found",
+          captainName: captainData.name,
+          rating: captainData.rating 
+        });
       }, 3500);
       return () => clearTimeout(timer);
     }
-  }, [journeyState]);
+  }, [journeyState, sessionId]);
 
-  // Simulate ride progress
   useEffect(() => {
     if (journeyState === "ride_started") {
       progressInterval.current = setInterval(() => {
         setRideProgress((prev) => {
           if (prev >= 100) {
             setJourneyState("ride_complete");
+            logEvent({ type: "ride_complete" });
             if (progressInterval.current) clearInterval(progressInterval.current);
             return 100;
           }
@@ -125,24 +183,20 @@ export function StudyApp() {
         if (progressInterval.current) clearInterval(progressInterval.current);
       };
     }
-  }, [journeyState]);
+  }, [journeyState, sessionId]);
 
-  const redirectToOwnly = (source: string) => {
-    const sid = getActiveSessionId();
-    if (sid) {
-      appendSessionEvent(sid, { type: "banner_click", at: Date.now() });
-      if (source.includes("ad")) {
-        appendSessionEvent(sid, {
-          type: "ride_search_ad_click",
-          at: Date.now(),
-          adId: source,
-        });
+  const redirectToOwnly = async (source: string) => {
+    if (sessionId) {
+      await logEvent({ type: "banner_click" });
+      if (source.includes("ad") || source.includes("_snippet") || source.includes("bottom_nav")) {
+        await logEvent({ type: "ride_search_ad_click", adId: source });
       }
-      markExploredOwnly(sid);
+      await fetch("/api/mark-explored", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
     }
-    Object.keys(localStorage).forEach((key) => {
-      if (key !== "ownly_auth") localStorage.removeItem(key);
-    });
     window.location.href = OWNLY_EXPLORE_URL;
   };
 
@@ -150,15 +204,26 @@ export function StudyApp() {
     setSelectedDestination(dest);
     setJourneyState("vehicle_selection");
     setSearchQuery("");
+    logEvent({ 
+      type: "destination_selected", 
+      destination: dest.name,
+      distance: dest.distance 
+    });
   };
 
   const handleBookRide = () => {
     setJourneyState("searching_captain");
+    logEvent({ 
+      type: "vehicle_selected", 
+      vehicleType: selectedRideType,
+      estimatedPrice: estimatedPrice 
+    });
   };
 
   const handleStartRide = () => {
     setJourneyState("ride_started");
     setRideProgress(0);
+    logEvent({ type: "ride_started" });
   };
 
   const handleRestart = () => {
@@ -167,6 +232,17 @@ export function StudyApp() {
     setCaptain(null);
     setRideProgress(0);
     setShowOwnlyInline(false);
+    const newSid = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setSessionId(newSid);
+    fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: newSid,
+        profile,
+        startedAt: Date.now(),
+      }),
+    });
   };
 
   const filteredDestinations = DESTINATIONS.filter(
@@ -180,7 +256,7 @@ export function StudyApp() {
       Math.round(selectedDestination.distance * RIDE_TYPES.find((r) => r.id === selectedRideType)!.perKm)
     : 0;
 
-  if (!session) {
+  if (!sessionId) {
     return (
       <div className="flex h-full items-center justify-center bg-[#FFC80A]">
         <div className="text-center">
@@ -198,17 +274,21 @@ export function StudyApp() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-2xl font-extrabold tracking-tight">rapido</p>
-            <p className="mt-0.5 text-xs font-semibold opacity-80">{session.profile.area}</p>
+            <p className="mt-0.5 text-xs font-semibold opacity-80">{profile.area}</p>
           </div>
           <button
             type="button"
+            onClick={() => {
+              localStorage.removeItem("ownly_auth");
+              localStorage.removeItem("ownly_rapido_profile");
+              router.push("/login");
+            }}
             className="flex h-10 w-10 items-center justify-center rounded-full bg-[#16140F] text-sm font-bold text-white shadow-md"
           >
-            {session.profile.name.charAt(0).toUpperCase()}
+            {profile.name.charAt(0).toUpperCase()}
           </button>
         </div>
 
-        {/* Top Banner - Only on Home */}
         {topBannerVisible && journeyState === "home" && (
           <div className="mt-3 overflow-hidden rounded-2xl bg-gradient-to-r from-[#E91E8C] to-[#C2185B] p-3 shadow-lg animate-slide-down">
             <div className="flex items-center gap-3">
@@ -218,7 +298,7 @@ export function StudyApp() {
               <div className="min-w-0 flex-1 text-white">
                 <p className="text-xs font-extrabold leading-tight">Food delivery is here!</p>
                 <p className="text-[10px] font-semibold text-[#FFC80A]">
-                  Zero fees · 2,847 orders in {session.profile.area}
+                  Zero fees · 2,847 orders in {profile.area}
                 </p>
               </div>
               <button
@@ -240,10 +320,8 @@ export function StudyApp() {
         )}
       </header>
 
-      {/* Main Content */}
       <main className="relative z-10 -mt-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-3xl bg-white shadow-[0_-4px_24px_rgba(0,0,0,0.08)]">
         <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-32">
-          {/* HOME STATE */}
           {journeyState === "home" && (
             <>
               <div className="sticky top-0 z-10 -mx-4 bg-white px-4 pb-3 pt-4">
@@ -324,7 +402,6 @@ export function StudyApp() {
             </>
           )}
 
-          {/* SEARCHING DESTINATION */}
           {journeyState === "searching_destination" && (
             <>
               <div className="sticky top-0 z-10 -mx-4 bg-white px-4 pb-3 pt-4">
@@ -332,17 +409,22 @@ export function StudyApp() {
                   <button
                     type="button"
                     onClick={() => setJourneyState("home")}
-                    className="flex h-10 w-10 items-center justify-center rounded-full active:bg-[#FAF8F3]"
+                    className="text-xl"
                   >
-                    <span className="text-2xl">←</span>
+                    ←
                   </button>
                   <input
                     type="text"
-                    autoFocus
-                    placeholder="Search destination..."
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="flex-1 rounded-2xl border-2 border-[#FFC80A] bg-white px-4 py-3 text-base font-semibold outline-none"
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      if (e.target.value.length > 0) {
+                        logEvent({ type: "search_term", term: e.target.value });
+                      }
+                    }}
+                    placeholder="Search destination..."
+                    autoFocus
+                    className="flex-1 rounded-2xl border-2 border-[#EDE9E0] px-4 py-4 text-sm font-semibold outline-none focus:border-[#FFC80A]"
                   />
                 </div>
               </div>
@@ -353,13 +435,13 @@ export function StudyApp() {
                     key={dest.id}
                     type="button"
                     onClick={() => handleDestinationSelect(dest)}
-                    className="flex w-full items-center gap-3 rounded-2xl bg-[#FAF8F3] px-4 py-3 text-left active:scale-[0.99] transition-transform"
+                    className="flex w-full items-center gap-3 rounded-2xl bg-[#FAF8F3] px-4 py-3 text-left active:bg-[#F5F3EE] transition-all active:scale-[0.99]"
                   >
                     <span className="text-xl">📍</span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-bold text-[#16140F]">{dest.name}</p>
                       <p className="truncate text-xs text-[#5C574F]">
-                        {dest.area} · {dest.distance} km away
+                        {dest.area} · {dest.distance} km
                       </p>
                     </div>
                     <span className="text-lg">→</span>
@@ -369,318 +451,240 @@ export function StudyApp() {
             </>
           )}
 
-          {/* VEHICLE SELECTION */}
-          {journeyState === "vehicle_selection" && (
+          {journeyState === "vehicle_selection" && selectedDestination && (
             <>
               <div className="sticky top-0 z-10 -mx-4 bg-white px-4 pb-3 pt-4">
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setJourneyState("home")}
-                    className="flex h-10 w-10 items-center justify-center rounded-full active:bg-[#FAF8F3]"
-                  >
-                    <span className="text-2xl">←</span>
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-extrabold text-[#16140F]">
-                      {selectedDestination?.name}
-                    </p>
-                    <p className="truncate text-xs text-[#5C574F]">
-                      {selectedDestination?.distance} km · {selectedDestination?.area}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-[#5C574F]">
-                  Choose your ride
-                </p>
-                <div className="mt-3 space-y-3">
-                  {RIDE_TYPES.map((ride) => {
-                    const price =
-                      ride.basePrice +
-                      Math.round((selectedDestination?.distance || 0) * ride.perKm);
-                    return (
-                      <button
-                        key={ride.id}
-                        type="button"
-                        onClick={() => setSelectedRideType(ride.id)}
-                        className={`flex w-full items-center gap-4 rounded-2xl border-2 p-4 text-left transition-all active:scale-[0.99] ${
-                          selectedRideType === ride.id
-                            ? "border-[#FFC80A] bg-[#FFF8D6] shadow-md"
-                            : "border-[#EDE9E0] bg-white"
-                        }`}
-                      >
-                        <span className="text-4xl">{ride.emoji}</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-base font-extrabold text-[#16140F]">{ride.name}</p>
-                          <p className="text-xs text-[#5C574F]">{ride.time} away</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-lg font-extrabold text-[#16140F]">₹{price}</p>
-                          <p className="text-[10px] text-[#5C574F]">Est. fare</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Small Ownly teaser during vehicle selection */}
-              <div className="mt-4 animate-slide-up">
                 <button
                   type="button"
-                  onClick={() => redirectToOwnly("vehicle_selection_snippet")}
-                  className="w-full overflow-hidden rounded-2xl border-2 border-[#FFD700] bg-gradient-to-r from-[#FFF8DC] to-white p-3 shadow-md active:scale-[0.99] transition-transform"
+                  onClick={() => setJourneyState("searching_destination")}
+                  className="text-xl"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">💡</span>
-                    <div className="min-w-0 flex-1 text-left">
-                      <p className="text-xs font-bold text-[#C2185B]">Pro tip</p>
-                      <p className="text-sm font-extrabold text-[#16140F]">
-                        Order food while riding → Collect on arrival
-                      </p>
-                    </div>
-                    <span className="text-lg">→</span>
-                  </div>
+                  ←
                 </button>
+                <div className="mt-2 flex items-center gap-2 text-sm">
+                  <span className="text-lg">📍</span>
+                  <span className="font-bold">{selectedDestination.name}</span>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {RIDE_TYPES.map((ride) => {
+                  const price =
+                    ride.basePrice + Math.round(selectedDestination.distance * ride.perKm);
+                  const isSelected = selectedRideType === ride.id;
+                  return (
+                    <button
+                      key={ride.id}
+                      type="button"
+                      onClick={() => setSelectedRideType(ride.id)}
+                      className={`flex w-full items-center gap-4 rounded-2xl p-4 text-left transition-all ${
+                        isSelected
+                          ? "bg-[#FFF8D6] border-2 border-[#FFC80A] scale-[1.02]"
+                          : "bg-[#FAF8F3] border-2 border-transparent active:scale-[0.98]"
+                      }`}
+                    >
+                      <span className="text-4xl">{ride.emoji}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-base font-bold">{ride.name}</p>
+                        <p className="text-xs text-[#5C574F]">{ride.time} away</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-extrabold">₹{price}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 rounded-2xl bg-gradient-to-br from-[#FFE5F5] to-[#FFF0FA] border border-[#F5D0E8] p-4">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">🍽️</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-extrabold text-[#C2185B]">
+                      Hungry? Skip the delivery fees
+                    </p>
+                    <p className="text-[11px] text-[#5C574F] mt-1">
+                      Order food on Ownly while you ride
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => redirectToOwnly("vehicle_selection_snippet")}
+                    className="shrink-0 rounded-full bg-[#E91E8C] px-3 py-1.5 text-[10px] font-bold text-white shadow active:scale-95 transition-transform"
+                  >
+                    Order
+                  </button>
+                </div>
               </div>
 
               <div className="mt-6">
                 <button
                   type="button"
                   onClick={handleBookRide}
-                  className="w-full rounded-2xl bg-[#FFC80A] py-4 text-base font-extrabold text-[#16140F] shadow-lg active:scale-[0.98] transition-transform"
+                  className="w-full rounded-2xl bg-[#FFC80A] py-4 text-base font-extrabold shadow-md active:scale-[0.98] transition-transform"
                 >
-                  Confirm {RIDE_TYPES.find((r) => r.id === selectedRideType)!.name} · ₹
-                  {estimatedPrice}
+                  Book {RIDE_TYPES.find((r) => r.id === selectedRideType)?.name} · ₹{estimatedPrice}
                 </button>
               </div>
             </>
           )}
 
-          {/* SEARCHING CAPTAIN */}
           {journeyState === "searching_captain" && (
-            <div className="flex min-h-[60vh] flex-col items-center justify-center">
-              <div className="text-center">
-                <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-[#FFF8D6] animate-pulse-soft">
-                  <span className="text-5xl">
-                    {RIDE_TYPES.find((r) => r.id === selectedRideType)!.emoji}
-                  </span>
-                </div>
-                <p className="mt-6 text-xl font-extrabold text-[#16140F]">
-                  Finding nearby captains...
-                </p>
-                <p className="mt-2 text-sm text-[#5C574F]">
-                  Searching for {RIDE_TYPES.find((r) => r.id === selectedRideType)!.name}s in{" "}
-                  {session.profile.area}
-                </p>
-              </div>
+            <div className="flex min-h-[400px] flex-col items-center justify-center">
+              <div className="h-20 w-20 rounded-full border-4 border-[#FFC80A] border-t-transparent animate-spin" />
+              <p className="mt-6 text-lg font-bold">Finding your captain...</p>
+              <p className="mt-2 text-sm text-[#5C574F]">This will take 2-4 minutes</p>
             </div>
           )}
 
-          {/* CAPTAIN FOUND */}
           {journeyState === "captain_found" && captain && (
             <>
-              <div className="mt-4 overflow-hidden rounded-3xl bg-[#E7F4EC] p-5 shadow-lg">
+              <div className="mt-4 text-center">
+                <p className="text-xl font-extrabold">Captain Found!</p>
+              </div>
+
+              <div className="mt-6 rounded-2xl bg-[#FAF8F3] p-5">
                 <div className="flex items-center gap-4">
-                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white text-2xl font-extrabold shadow">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[#FFC80A] text-2xl font-extrabold">
                     {captain.name.charAt(0)}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-extrabold text-[#1C7A4E]">
-                      ✓ Captain found nearby
-                    </p>
-                    <p className="text-lg font-extrabold text-[#16140F]">{captain.name}</p>
-                    <p className="text-xs text-[#5C574F]">
-                      {captain.rating}★ · {captain.plate}
-                    </p>
+                    <p className="text-base font-bold">{captain.name}</p>
+                    <p className="text-sm text-[#5C574F]">⭐ {captain.rating} · {captain.plate}</p>
                   </div>
                 </div>
-                <div className="mt-4 rounded-2xl bg-white p-4 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs font-semibold text-[#5C574F]">Arriving in</p>
-                      <p className="text-2xl font-extrabold text-[#16140F]">
-                        {RIDE_TYPES.find((r) => r.id === selectedRideType)!.time}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-semibold text-[#5C574F]">Fare</p>
-                      <p className="text-2xl font-extrabold text-[#16140F]">₹{estimatedPrice}</p>
-                    </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl bg-gradient-to-r from-[#E91E8C] to-[#C2185B] p-5 text-white shadow-lg">
+                <div className="flex items-start gap-3">
+                  <span className="text-3xl">🍽️</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-extrabold">Waiting? Order food on Ownly</p>
+                    <p className="mt-1 text-xs font-semibold text-[#FFC80A]">
+                      Zero delivery fees · Track your meal like your ride
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => redirectToOwnly("captain_found_ad")}
+                      className="mt-3 w-full rounded-xl bg-white py-3 text-sm font-extrabold text-[#E91E8C] active:scale-[0.98] transition-transform"
+                    >
+                      Try Ownly now →
+                    </button>
                   </div>
                 </div>
+              </div>
+
+              <div className="mt-6">
                 <button
                   type="button"
                   onClick={handleStartRide}
-                  className="mt-4 w-full rounded-2xl bg-[#1C7A4E] py-4 text-base font-extrabold text-white shadow-lg active:scale-[0.98] transition-transform"
+                  className="w-full rounded-2xl bg-[#1C7A4E] py-4 text-base font-extrabold text-white shadow-md active:scale-[0.98] transition-transform"
                 >
-                  Captain arrived · Start ride
-                </button>
-              </div>
-
-              {/* Ownly while waiting for captain */}
-              <div className="mt-4 animate-slide-up">
-                <button
-                  type="button"
-                  onClick={() => redirectToOwnly("captain_found_ad")}
-                  className="w-full overflow-hidden rounded-2xl border-2 border-[#E91E8C] bg-white shadow-lg active:scale-[0.99] transition-transform"
-                >
-                  <div className="bg-gradient-to-r from-[#FFE5F5] to-[#FFF0FA] px-3 py-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-[#C2185B]">
-                      ⭐ While your {RIDE_TYPES.find((r) => r.id === selectedRideType)!.name}{" "}
-                      arrives
-                    </p>
-                  </div>
-                  <div className="p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#E91E8C] to-[#C2185B] text-2xl">
-                        🍕
-                      </div>
-                      <div className="min-w-0 flex-1 text-left">
-                        <p className="text-base font-extrabold leading-tight text-[#16140F]">
-                          Pre-order lunch for delivery
-                        </p>
-                        <p className="mt-1 text-xs text-[#5C574F]">
-                          Order now · Ready when you reach destination
-                        </p>
-                        <div className="mt-3 inline-block rounded-xl bg-[#1C7A4E] px-4 py-2.5 text-sm font-extrabold text-white shadow">
-                          Browse restaurants →
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  Start Ride
                 </button>
               </div>
             </>
           )}
 
-          {/* RIDE IN PROGRESS */}
-          {journeyState === "ride_started" && captain && (
+          {journeyState === "ride_started" && captain && selectedDestination && (
             <>
-              <div className="mt-4 overflow-hidden rounded-3xl bg-gradient-to-br from-[#FFF8D6] to-[#FFEFB3] p-5 shadow-lg">
-                <p className="text-sm font-extrabold text-[#1C7A4E]">✓ Ride in progress</p>
-                <div className="mt-4 flex items-center gap-4">
-                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white text-2xl font-extrabold shadow">
+              <div className="mt-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-lg font-extrabold">Ride in progress...</p>
+                  <p className="text-sm font-semibold text-[#5C574F]">{rideProgress}%</p>
+                </div>
+                <div className="mt-2 h-3 overflow-hidden rounded-full bg-[#F0EDE6]">
+                  <div
+                    className="h-full bg-[#1C7A4E] transition-all duration-500"
+                    style={{ width: `${rideProgress}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-6 rounded-2xl bg-[#FAF8F3] p-5">
+                <p className="text-xs font-bold uppercase tracking-wide text-[#5C574F]">
+                  Captain
+                </p>
+                <div className="mt-2 flex items-center gap-3">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#FFC80A] text-lg font-extrabold">
                     {captain.name.charAt(0)}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-lg font-extrabold text-[#16140F]">{captain.name}</p>
-                    <p className="text-xs text-[#5C574F]">
-                      {captain.rating}★ · {captain.plate}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-4">
-                  <div className="flex justify-between text-xs font-semibold text-[#5C574F] mb-2">
-                    <span>To {selectedDestination?.name}</span>
-                    <span>{rideProgress}%</span>
-                  </div>
-                  <div className="h-3 overflow-hidden rounded-full bg-white">
-                    <div
-                      className="h-full bg-[#FFC80A] transition-all duration-300 ease-linear"
-                      style={{ width: `${rideProgress}%` }}
-                    />
+                    <p className="text-sm font-bold">{captain.name}</p>
+                    <p className="text-xs text-[#5C574F]">{captain.plate}</p>
                   </div>
                 </div>
               </div>
 
-              {/* Ownly during ride - perfect time! */}
-              {rideProgress < 80 && (
-                <div className="mt-4 animate-slide-up">
-                  <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-[#FFE5F5] via-[#FFF0FA] to-white shadow-xl border-2 border-[#E91E8C]">
-                    <div className="p-5">
-                      <div className="flex items-start gap-4">
-                        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#E91E8C] to-[#C2185B] text-4xl shadow-lg">
-                          🍽️
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-extrabold text-[#C2185B]">OWNLY</p>
-                          <p className="mt-1 text-lg font-extrabold leading-tight text-[#16140F]">
-                            Order food to your destination
-                          </p>
-                          <p className="mt-2 text-xs text-[#5C574F]">
-                            Zero fees · Free delivery · Arrives with you
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => redirectToOwnly("ride_in_progress_ad")}
-                        className="mt-4 w-full rounded-2xl bg-gradient-to-r from-[#E91E8C] to-[#C2185B] py-4 text-sm font-extrabold text-white shadow-md active:scale-[0.98] transition-transform"
-                      >
-                        Browse food now →
-                      </button>
-                    </div>
+              <div className="mt-4 rounded-2xl border-2 border-[#F5D0E8] bg-gradient-to-br from-[#FFE5F5] to-white p-4">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">🍽️</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-extrabold text-[#C2185B]">
+                      Almost there! Order food for when you arrive
+                    </p>
+                    <p className="mt-1 text-[11px] text-[#5C574F]">
+                      Get your meal delivered at your destination
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => redirectToOwnly("ride_in_progress_ad")}
+                      className="mt-3 w-full rounded-xl bg-gradient-to-r from-[#E91E8C] to-[#C2185B] py-2.5 text-xs font-extrabold text-white active:scale-[0.98] transition-transform"
+                    >
+                      Order on Ownly →
+                    </button>
                   </div>
                 </div>
-              )}
+              </div>
             </>
           )}
 
-          {/* RIDE COMPLETE */}
-          {journeyState === "ride_complete" && captain && (
-            <div className="flex min-h-[60vh] flex-col items-center justify-center">
-              <div className="text-center">
-                <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-[#E7F4EC]">
-                  <span className="text-5xl">✓</span>
+          {journeyState === "ride_complete" && (
+            <>
+              <div className="mt-8 text-center">
+                <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-[#1C7A4E] text-4xl">
+                  ✓
                 </div>
-                <p className="mt-6 text-2xl font-extrabold text-[#1C7A4E]">
-                  Ride completed!
-                </p>
+                <p className="mt-4 text-2xl font-extrabold">Ride Complete!</p>
                 <p className="mt-2 text-sm text-[#5C574F]">
                   You've reached {selectedDestination?.name}
                 </p>
-                <div className="mt-6 rounded-2xl bg-[#FAF8F3] p-6">
-                  <p className="text-xs font-semibold text-[#5C574F]">Total fare</p>
-                  <p className="text-4xl font-extrabold text-[#16140F]">₹{estimatedPrice}</p>
-                  <p className="mt-2 text-xs text-[#5C574F]">
-                    {selectedDestination?.distance} km · {captain.name}
-                  </p>
-                </div>
+              </div>
 
-                {/* Post-ride Ownly promotion */}
-                <div className="mt-6 animate-slide-up">
+              <div className="mt-8 rounded-3xl bg-gradient-to-br from-[#FFE5F5] via-[#FFF0FA] to-white border-2 border-[#F5D0E8] p-6 shadow-lg">
+                <div className="text-center">
+                  <span className="text-5xl">🍽️</span>
+                  <p className="mt-3 text-lg font-extrabold text-[#C2185B]">
+                    Perfect timing!
+                  </p>
+                  <p className="mt-2 text-sm text-[#16140F]">
+                    You just finished your ride. Now try Ownly and get food delivered with{" "}
+                    <span className="font-extrabold text-[#1C7A4E]">zero fees</span>
+                  </p>
                   <button
                     type="button"
                     onClick={() => redirectToOwnly("ride_complete_ad")}
-                    className="w-full overflow-hidden rounded-2xl border-2 border-[#1C7A4E] bg-white shadow-lg active:scale-[0.99] transition-transform"
+                    className="mt-5 w-full rounded-2xl bg-gradient-to-r from-[#E91E8C] to-[#C2185B] py-4 text-base font-extrabold text-white shadow-md active:scale-[0.98] transition-transform"
                   >
-                    <div className="bg-gradient-to-r from-[#E7F4EC] to-white px-4 py-3">
-                      <p className="text-[11px] font-bold uppercase tracking-wide text-[#1C7A4E]">
-                        🎉 Now that you're here...
-                      </p>
-                    </div>
-                    <div className="p-4">
-                      <p className="text-base font-extrabold text-[#16140F]">
-                        Get lunch delivered in 30 min
-                      </p>
-                      <p className="mt-1 text-xs text-[#5C574F]">
-                        Zero platform fees · Free delivery above ₹99
-                      </p>
-                      <div className="mt-3 rounded-xl bg-[#1C7A4E] px-5 py-3 text-sm font-extrabold text-white shadow">
-                        Order food now →
-                      </div>
-                    </div>
+                    Order food on Ownly →
                   </button>
                 </div>
+              </div>
 
+              <div className="mt-6">
                 <button
                   type="button"
                   onClick={handleRestart}
-                  className="mt-6 w-full max-w-xs rounded-2xl border-2 border-[#EDE9E0] bg-white py-3 text-sm font-bold text-[#5C574F] active:scale-[0.98] transition-transform"
+                  className="w-full rounded-2xl bg-[#FAF8F3] py-4 text-sm font-bold text-[#5C574F] active:scale-[0.98] transition-transform"
                 >
                   Book another ride
                 </button>
               </div>
-            </div>
+            </>
           )}
         </div>
       </main>
 
-      {/* Bottom Navigation */}
       <nav className="absolute bottom-0 left-0 right-0 z-30 border-t border-[#EDE9E0] bg-white px-2 pb-6 pt-2 safe-bottom">
         <div className="flex justify-around">
           <NavItem label="Ride" active icon="🚗" />
