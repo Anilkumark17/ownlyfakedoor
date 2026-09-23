@@ -42,7 +42,6 @@ export function StudyApp() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDestination, setSelectedDestination] = useState<typeof DESTINATIONS[0] | null>(null);
   const [selectedRideType, setSelectedRideType] = useState<RideType>("bike");
-  const [showOwnlyInline, setShowOwnlyInline] = useState(false);
   const [captain, setCaptain] = useState<{
     name: string;
     rating: string;
@@ -136,13 +135,6 @@ export function StudyApp() {
       logEvent({ type: "banner_impression" });
     }
   }, [topBannerVisible, sessionId]);
-
-  useEffect(() => {
-    if (journeyState === "home" && !showOwnlyInline) {
-      const timer = setTimeout(() => setShowOwnlyInline(true), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [journeyState, showOwnlyInline]);
 
   useEffect(() => {
     if (journeyState === "searching_captain") {
@@ -336,44 +328,6 @@ export function StudyApp() {
                   </span>
                 </button>
               </div>
-
-              {showOwnlyInline && (
-                <div className="mt-4 animate-slide-up">
-                  <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-[#FFE5F5] via-[#FFF0FA] to-white shadow-lg border border-[#F5D0E8]">
-                    <div className="relative p-5">
-                      <div className="absolute right-3 top-3 rounded-full bg-[#1C7A4E] px-2.5 py-1 text-[10px] font-bold text-white shadow">
-                        NEW
-                      </div>
-                      <div className="flex items-start gap-4">
-                        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#E91E8C] to-[#C2185B] text-4xl shadow-lg">
-                          🍽️
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-extrabold text-[#C2185B]">OWNLY</p>
-                          <p className="mt-1 text-lg font-extrabold leading-tight text-[#16140F]">
-                            Food delivery, minus the fees
-                          </p>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <div className="rounded-full bg-white px-3 py-1.5 text-[11px] font-bold text-[#1C7A4E] shadow-sm">
-                              ✓ Zero platform fees
-                            </div>
-                            <div className="rounded-full bg-white px-3 py-1.5 text-[11px] font-bold text-[#1C7A4E] shadow-sm">
-                              ✓ Free delivery
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => redirectToOwnly("home_feed_card")}
-                        className="mt-4 w-full rounded-2xl bg-gradient-to-r from-[#E91E8C] to-[#C2185B] py-4 text-sm font-extrabold text-white shadow-md active:scale-[0.98] transition-transform"
-                      >
-                        Order food now →
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               <div className="mt-6">
                 <p className="text-xs font-bold uppercase tracking-wide text-[#5C574F]">
