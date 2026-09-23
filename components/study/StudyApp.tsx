@@ -178,7 +178,7 @@ export function StudyApp() {
           }
           return prev + 2;
         });
-      }, 600);
+      }, 60); // 3 seconds total (100 / 2 = 50 steps * 60ms = 3000ms)
       return () => {
         if (progressInterval.current) clearInterval(progressInterval.current);
       };
