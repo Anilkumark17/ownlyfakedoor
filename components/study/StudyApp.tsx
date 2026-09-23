@@ -231,7 +231,7 @@ export function StudyApp() {
     setSelectedDestination(null);
     setCaptain(null);
     setRideProgress(0);
-    setShowOwnlyInline(false);
+    // Keep showOwnlyInline state so advertisement doesn't reload
     const newSid = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     setSessionId(newSid);
     fetch("/api/sessions", {
