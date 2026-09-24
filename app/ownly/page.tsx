@@ -13,6 +13,15 @@ type Profile = {
   area: string;
 };
 
+function cameFromRapidoFlow(searchParams: URLSearchParams) {
+  const from = searchParams.get("from") || searchParams.get("source") || "";
+  if (from === "direct") return false;
+  if (from && from !== "in_app") return true;
+  if (searchParams.get("session")) return true;
+  if (localStorage.getItem(STORAGE_KEYS.OWNLY_RAPIDO_ENTRY)) return true;
+  return false;
+}
+
 function OwnlyFlow() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -25,14 +34,14 @@ function OwnlyFlow() {
   useEffect(() => {
     const authRaw = localStorage.getItem(STORAGE_KEYS.AUTH);
     if (!authRaw) {
-      router.replace("/login?next=/ownly");
+      router.replace("/login?entry=direct");
       return;
     }
 
     try {
       const auth = JSON.parse(authRaw) as { role?: string; username?: string; profile?: Profile };
       if (auth.role !== "customer") {
-        router.replace("/login?next=/ownly");
+        router.replace("/login?entry=direct");
         return;
       }
 
@@ -45,6 +54,18 @@ function OwnlyFlow() {
       const saved = localStorage.getItem(STORAGE_KEYS.PROFILE);
       if (saved) loaded = { ...loaded, ...JSON.parse(saved) };
 
+      const directUser = isDirectParticipant(loaded.username, loaded.name);
+
+      if (!directUser && !cameFromRapidoFlow(searchParams)) {
+        router.replace("/app");
+        return;
+      }
+
+      if (directUser && querySource !== "direct") {
+        router.replace("/ownly?source=direct");
+        return;
+      }
+
       setProfile(loaded);
 
       const fromQuery = searchParams.get("session") || "";
@@ -53,8 +74,11 @@ function OwnlyFlow() {
       localStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, sid);
       setSessionId(sid);
 
-      const directUser = isDirectParticipant(loaded.username, loaded.name);
       const source = directUser ? "direct" : querySource;
+
+      if (!directUser) {
+        localStorage.setItem(STORAGE_KEYS.OWNLY_RAPIDO_ENTRY, String(Date.now()));
+      }
 
       if (!fromQuery && !stored) {
         void fetch("/api/sessions", {
@@ -72,7 +96,7 @@ function OwnlyFlow() {
 
       setReady(true);
     } catch {
-      router.replace("/login?next=/ownly");
+      router.replace("/login?entry=direct");
     }
   }, [router, searchParams, querySource]);
 

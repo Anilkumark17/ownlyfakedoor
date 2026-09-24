@@ -10,6 +10,8 @@ export const STORAGE_KEYS = {
   PROFILE: "ownly_rapido_profile",
   ACTIVE_SESSION: "ownly_active_session",
   SESSIONS: "ownly_behavior_sessions",
+  /** Set when user opens Ownly from the Rapido prototype (not direct entry) */
+  OWNLY_RAPIDO_ENTRY: "ownly_rapido_entry",
 } as const;
 
 // Brand colors

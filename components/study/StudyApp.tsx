@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { OWNLY_EXPLORE_URL, STORAGE_KEYS } from "@/lib/constants";
+import { isDirectParticipant } from "@/lib/ownly/channel";
 
 type RideType = "auto" | "bike" | "cab";
 type JourneyState =
@@ -68,7 +69,12 @@ export function StudyApp() {
 
       const savedProfile = localStorage.getItem(STORAGE_KEYS.PROFILE);
       if (savedProfile) {
-        setProfile(JSON.parse(savedProfile));
+        const parsed = JSON.parse(savedProfile) as typeof profile;
+        setProfile(parsed);
+        if (isDirectParticipant(parsed.username, parsed.name)) {
+          router.replace("/ownly?source=direct");
+          return;
+        }
       }
     } catch {
       router.replace("/login");
@@ -194,6 +200,7 @@ export function StudyApp() {
         body: JSON.stringify({ sessionId, source }),
       });
     }
+    localStorage.setItem(STORAGE_KEYS.OWNLY_RAPIDO_ENTRY, String(Date.now()));
     router.push(
       `${OWNLY_EXPLORE_URL}?from=${encodeURIComponent(source)}&session=${encodeURIComponent(sessionId)}`
     );

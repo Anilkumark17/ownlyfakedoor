@@ -48,7 +48,7 @@ function logoutOwnly(router: ReturnType<typeof useRouter>) {
   localStorage.removeItem(STORAGE_KEYS.AUTH);
   localStorage.removeItem(STORAGE_KEYS.PROFILE);
   localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
-  router.push("/login?next=/ownly");
+  router.push("/login");
 }
 
 export function OwnlyApp({ sessionId, source, username, displayName, isDirectParticipant }: Props) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent, Suspense } from "react";
+import { useState, FormEvent, Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ADMIN_EMAIL, ADMIN_PASSWORD, STORAGE_KEYS } from "@/lib/constants";
 import { DIRECT_PARTICIPANT_USERNAME } from "@/lib/ownly/channel";
@@ -8,24 +8,32 @@ import { DIRECT_PARTICIPANT_USERNAME } from "@/lib/ownly/channel";
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const nextPath = searchParams.get("next") || "/app";
+  const entry = searchParams.get("entry");
   const [mode, setMode] = useState<"select" | "customer" | "admin">("select");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    if (entry === "direct") setMode("select");
+  }, [entry]);
+
   const handleCustomerLogin = (e: FormEvent) => {
     e.preventDefault();
-    if (!username.trim()) {
+    const trimmed = username.trim();
+    if (!trimmed) {
       setError("Please enter a username");
       return;
     }
+    if (trimmed.toLowerCase() === DIRECT_PARTICIPANT_USERNAME) {
+      setError('Use "Start Ownly (direct)" on the previous screen for the food-only flow.');
+      return;
+    }
 
-    // Store auth and profile
     const profile = {
-      username: username.trim(),
-      name: username.trim(),
+      username: trimmed,
+      name: trimmed,
       phone: "9XXXXXXXXX",
       area: "Gachibowli",
       savedAt: Date.now(),
@@ -33,13 +41,14 @@ function LoginContent() {
 
     localStorage.setItem(STORAGE_KEYS.AUTH, JSON.stringify({
       role: "customer",
-      username: username.trim(),
+      username: trimmed,
       profile,
     }));
     localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(profile));
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+    localStorage.removeItem(STORAGE_KEYS.OWNLY_RAPIDO_ENTRY);
 
-    router.push(nextPath.startsWith("/") ? nextPath : "/app");
+    router.push("/app");
   };
 
   const handleDirectOwnlyLogin = () => {
@@ -57,6 +66,7 @@ function LoginContent() {
     }));
     localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(profile));
     localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+    localStorage.removeItem(STORAGE_KEYS.OWNLY_RAPIDO_ENTRY);
     router.push("/ownly?source=direct");
   };
 
@@ -84,27 +94,39 @@ function LoginContent() {
             </p>
           </div>
 
+          {entry === "direct" && (
+            <p className="mb-4 rounded-xl bg-white/80 px-3 py-2 text-center text-xs font-semibold text-[#16140F]">
+              Log in with <strong>Start Ownly (direct)</strong> for food ordering only.
+            </p>
+          )}
+
           <div className="space-y-3">
             <button
               type="button"
               onClick={() => setMode("customer")}
               className="w-full rounded-2xl bg-[#16140F] px-6 py-4 text-center text-base font-extrabold text-white shadow-lg active:scale-[0.98] transition-transform"
             >
-              Continue as Customer
+              Start Rapido
             </button>
+            <p className="px-1 text-center text-[11px] font-semibold text-[#16140F]/70">
+              Ride app first — discover Ownly from banners &amp; ads inside
+            </p>
+            <button
+              type="button"
+              onClick={handleDirectOwnlyLogin}
+              className="w-full rounded-2xl border-2 border-[#1a8a4a] bg-[#e8f6ee] px-6 py-4 text-center text-base font-extrabold text-[#1a8a4a] active:scale-[0.98] transition-transform"
+            >
+              Start Ownly (direct)
+            </button>
+            <p className="px-1 text-center text-[11px] font-semibold text-[#16140F]/70">
+              Food ordering UI only — no Rapido ride flow
+            </p>
             <button
               type="button"
               onClick={() => setMode("admin")}
               className="w-full rounded-2xl bg-white px-6 py-4 text-center text-base font-extrabold text-[#16140F] shadow-lg active:scale-[0.98] transition-transform"
             >
               Admin Login
-            </button>
-            <button
-              type="button"
-              onClick={handleDirectOwnlyLogin}
-              className="w-full rounded-2xl border-2 border-[#16140F] bg-transparent px-6 py-4 text-center text-base font-extrabold text-[#16140F] active:scale-[0.98] transition-transform"
-            >
-              Ownly direct (username: direct)
             </button>
           </div>
         </div>
@@ -125,9 +147,9 @@ function LoginContent() {
           </button>
 
           <div className="text-center mb-6">
-            <p className="text-3xl font-extrabold tracking-tight text-[#16140F]">Welcome</p>
+            <p className="text-3xl font-extrabold tracking-tight text-[#16140F]">Rapido</p>
             <p className="mt-2 text-sm font-semibold text-[#16140F] opacity-70">
-              Enter a unique username to start
+              Pick a username — you&apos;ll book rides and see Ownly in context
             </p>
           </div>
 
@@ -154,14 +176,7 @@ function LoginContent() {
               type="submit"
               className="w-full rounded-2xl bg-[#16140F] px-6 py-4 text-base font-extrabold text-white shadow-lg active:scale-[0.98] transition-transform"
             >
-              {nextPath === "/ownly" ? "Log in to Ownly" : "Start Experience"}
-            </button>
-            <button
-              type="button"
-              onClick={handleDirectOwnlyLogin}
-              className="w-full rounded-2xl border-2 border-[#16140F] bg-white px-6 py-3 text-sm font-extrabold text-[#16140F]"
-            >
-              Or continue as direct
+              Open Rapido app
             </button>
           </form>
         </div>
@@ -169,7 +184,6 @@ function LoginContent() {
     );
   }
 
-  // Admin mode
   return (
     <div className="flex h-full flex-col items-center justify-center bg-[#16140F] p-6">
       <div className="w-full max-w-sm">
