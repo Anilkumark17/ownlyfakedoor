@@ -4,7 +4,7 @@ export async function logOwnlyEvent(
   sessionId: string,
   eventName: string,
   payload: OwnlyEventPayload = {},
-  extra: { variant?: string; source?: string } = {},
+  extra: { variant?: string; source?: string; username?: string } = {},
 ) {
   if (!sessionId) return;
   const event = {
@@ -14,6 +14,7 @@ export async function logOwnlyEvent(
     payload,
     variant: extra.variant || "",
     source: extra.source || "",
+    username: extra.username || "",
     q_id: String(payload.q_id || ""),
     answer: String(payload.answer || ""),
     subject: String(payload.subject || ""),

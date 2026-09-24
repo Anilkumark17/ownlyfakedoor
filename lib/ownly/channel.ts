@@ -11,9 +11,26 @@ export const RAPIDO_SOURCES = new Set([
 
 export type OwnlyChannel = "rapido" | "direct";
 
+export const DIRECT_PARTICIPANT_USERNAME = "direct";
+
+export function isDirectParticipant(username: string, displayName = ""): boolean {
+  const u = username.trim().toLowerCase();
+  const n = displayName.trim().toLowerCase();
+  return u === DIRECT_PARTICIPANT_USERNAME || n === DIRECT_PARTICIPANT_USERNAME || n === "direct visitor";
+}
+
 export function ownlyChannel(source: string, previous: OwnlyChannel | "" = ""): OwnlyChannel {
   if (RAPIDO_SOURCES.has(source)) return "rapido";
   if (previous) return previous;
   if (source === "direct" || source === "in_app" || !source) return "direct";
   return "rapido";
+}
+
+export function resolveOwnlyChannel(
+  source: string,
+  opts: { forceDirect?: boolean; existing?: OwnlyChannel | "" } = {},
+): OwnlyChannel {
+  if (opts.forceDirect) return "direct";
+  if (opts.existing) return opts.existing;
+  return ownlyChannel(source);
 }

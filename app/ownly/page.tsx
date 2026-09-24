@@ -1,53 +1,97 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { OwnlyApp } from "@/components/ownly/OwnlyApp";
+import { isDirectParticipant } from "@/lib/ownly/channel";
+import { STORAGE_KEYS } from "@/lib/constants";
+
+type Profile = {
+  username: string;
+  name: string;
+  phone: string;
+  area: string;
+};
 
 function OwnlyFlow() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [sessionId, setSessionId] = useState("");
-  const source = searchParams.get("from") || searchParams.get("source") || "in_app";
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [ready, setReady] = useState(false);
+
+  const querySource = searchParams.get("from") || searchParams.get("source") || "in_app";
 
   useEffect(() => {
-    const fromQuery = searchParams.get("session") || "";
-    const stored = localStorage.getItem("ownly_active_session") || "";
-    const sid = fromQuery || stored || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    localStorage.setItem("ownly_active_session", sid);
-    setSessionId(sid);
-
-    if (!fromQuery && !stored) {
-      let profile: Record<string, string> = {
-        name: "Direct visitor",
-        phone: "",
-        area: "Gachibowli",
-        username: "direct",
-      };
-      try {
-        const raw = localStorage.getItem("ownly_rapido_profile");
-        if (raw) profile = { ...profile, ...JSON.parse(raw) };
-      } catch {
-        /* ignore */
-      }
-      void fetch("/api/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: sid, profile, startedAt: Date.now() }),
-      });
+    const authRaw = localStorage.getItem(STORAGE_KEYS.AUTH);
+    if (!authRaw) {
+      router.replace("/login?next=/ownly");
+      return;
     }
 
-    void fetch("/api/mark-explored", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: sid, source }),
-    });
-  }, [searchParams, source]);
+    try {
+      const auth = JSON.parse(authRaw) as { role?: string; username?: string; profile?: Profile };
+      if (auth.role !== "customer") {
+        router.replace("/login?next=/ownly");
+        return;
+      }
 
-  if (!sessionId) {
+      let loaded: Profile = {
+        username: auth.username || "guest",
+        name: auth.profile?.name || auth.username || "guest",
+        phone: auth.profile?.phone || "",
+        area: auth.profile?.area || "Gachibowli",
+      };
+      const saved = localStorage.getItem(STORAGE_KEYS.PROFILE);
+      if (saved) loaded = { ...loaded, ...JSON.parse(saved) };
+
+      setProfile(loaded);
+
+      const fromQuery = searchParams.get("session") || "";
+      const stored = localStorage.getItem(STORAGE_KEYS.ACTIVE_SESSION) || "";
+      const sid = fromQuery || stored || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      localStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, sid);
+      setSessionId(sid);
+
+      const directUser = isDirectParticipant(loaded.username, loaded.name);
+      const source = directUser ? "direct" : querySource;
+
+      if (!fromQuery && !stored) {
+        void fetch("/api/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: sid, profile: loaded, startedAt: Date.now() }),
+        });
+      }
+
+      void fetch("/api/mark-explored", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: sid, source }),
+      });
+
+      setReady(true);
+    } catch {
+      router.replace("/login?next=/ownly");
+    }
+  }, [router, searchParams, querySource]);
+
+  if (!ready || !sessionId || !profile) {
     return <div className="p-6 text-sm">Opening Ownly…</div>;
   }
 
-  return <OwnlyApp sessionId={sessionId} source={source} />;
+  const directUser = isDirectParticipant(profile.username, profile.name);
+  const source = directUser ? "direct" : querySource;
+
+  return (
+    <OwnlyApp
+      sessionId={sessionId}
+      source={source}
+      username={profile.username}
+      displayName={profile.name}
+      isDirectParticipant={directUser}
+    />
+  );
 }
 
 export default function OwnlyPage() {

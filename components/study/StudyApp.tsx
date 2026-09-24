@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { OWNLY_EXPLORE_URL } from "@/lib/constants";
+import { OWNLY_EXPLORE_URL, STORAGE_KEYS } from "@/lib/constants";
 
 type RideType = "auto" | "bike" | "cab";
 type JourneyState =
@@ -53,7 +53,7 @@ export function StudyApp() {
 
   // Check authentication
   useEffect(() => {
-    const auth = localStorage.getItem("ownly_auth");
+    const auth = localStorage.getItem(STORAGE_KEYS.AUTH);
     if (!auth) {
       router.replace("/login");
       return;
@@ -66,7 +66,7 @@ export function StudyApp() {
         return;
       }
 
-      const savedProfile = localStorage.getItem("ownly_rapido_profile");
+      const savedProfile = localStorage.getItem(STORAGE_KEYS.PROFILE);
       if (savedProfile) {
         setProfile(JSON.parse(savedProfile));
       }
@@ -81,10 +81,10 @@ export function StudyApp() {
 
     const initSession = async () => {
       try {
-        const existing = localStorage.getItem("ownly_active_session");
+        const existing = localStorage.getItem(STORAGE_KEYS.ACTIVE_SESSION);
         const sid = existing || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         setSessionId(sid);
-        localStorage.setItem("ownly_active_session", sid);
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, sid);
 
         if (existing) {
           console.log("Reusing session:", sid);
@@ -233,7 +233,7 @@ export function StudyApp() {
     // Keep showOwnlyInline state so advertisement doesn't reload
     const newSid = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     setSessionId(newSid);
-    localStorage.setItem("ownly_active_session", newSid);
+    localStorage.setItem(STORAGE_KEYS.ACTIVE_SESSION, newSid);
     fetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -279,8 +279,9 @@ export function StudyApp() {
           <button
             type="button"
             onClick={() => {
-              localStorage.removeItem("ownly_auth");
-              localStorage.removeItem("ownly_rapido_profile");
+              localStorage.removeItem(STORAGE_KEYS.AUTH);
+              localStorage.removeItem(STORAGE_KEYS.PROFILE);
+              localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
               router.push("/login");
             }}
             className="flex h-10 w-10 items-center justify-center rounded-full bg-[#16140F] text-sm font-bold text-white shadow-md"

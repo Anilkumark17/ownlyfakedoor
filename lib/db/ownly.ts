@@ -9,7 +9,8 @@ import {
   type OwnlyVisitRow,
 } from "./schema";
 import { isQuestionId, questionField, QUESTION_FIELDS } from "../ownly/answers";
-import { ownlyChannel, type OwnlyChannel } from "../ownly/channel";
+import { isDirectParticipant, resolveOwnlyChannel, type OwnlyChannel } from "../ownly/channel";
+import { sessions } from "./schema";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -34,6 +35,17 @@ function asNumber(value: unknown): number {
 
 function visitTable(channel: OwnlyChannel) {
   return channel === "rapido" ? ownlyRapido : ownlyDirect;
+}
+
+async function sessionParticipant(sessionId: string) {
+  const rows = await db.select().from(sessions).where(eq(sessions.sessionId, sessionId)).limit(1);
+  const row = rows[0];
+  if (!row) return { username: "", name: "" };
+  const email = row.riderEmail || "";
+  const username = email.endsWith("@rapido.local")
+    ? email.slice(0, -"@rapido.local".length)
+    : "";
+  return { username, name: row.profileName || "" };
 }
 
 async function latestVisit(sessionId: string, channel: OwnlyChannel) {
@@ -68,6 +80,14 @@ export function serializeVisit(row: OwnlyVisitRow, channel: OwnlyChannel) {
 }
 
 export async function getOwnlyVisitForSession(sessionId: string) {
+  const participant = await sessionParticipant(sessionId);
+  const forceDirect = isDirectParticipant(participant.username, participant.name);
+
+  if (forceDirect) {
+    const direct = await latestVisit(sessionId, "direct");
+    return direct ? serializeVisit(direct, "direct") : null;
+  }
+
   const [rapido, direct] = await Promise.all([
     latestVisit(sessionId, "rapido"),
     latestVisit(sessionId, "direct"),
@@ -89,11 +109,18 @@ export async function upsertOwnlyFromEvent(sessionId: string | undefined, event:
   const name = type.replace(/^ownly_/, "");
   const sid = sessionId || asString(event.sessionId) || "";
   const source = asString(event.source || pick(event, "source"));
+  const eventUsername = asString(pick(event, "username"));
+  const participant = sid ? await sessionParticipant(sid) : { username: "", name: "" };
+  const username = eventUsername || participant.username;
+  const forceDirect = isDirectParticipant(username, participant.name);
 
   let row: OwnlyVisitRow | undefined;
-  let channel: OwnlyChannel = ownlyChannel(source);
+  let channel: OwnlyChannel;
 
-  if (sid) {
+  if (forceDirect) {
+    channel = "direct";
+    if (sid) row = await latestVisit(sid, "direct");
+  } else if (sid) {
     const rapidoRow = await latestVisit(sid, "rapido");
     const directRow = await latestVisit(sid, "direct");
     if (rapidoRow && directRow) {
@@ -110,11 +137,11 @@ export async function upsertOwnlyFromEvent(sessionId: string | undefined, event:
     } else if (directRow) {
       row = directRow;
       channel = "direct";
+    } else {
+      channel = resolveOwnlyChannel(source);
     }
-  }
-
-  if (!row) {
-    channel = ownlyChannel(source);
+  } else {
+    channel = resolveOwnlyChannel(source);
   }
 
   const table = visitTable(channel);

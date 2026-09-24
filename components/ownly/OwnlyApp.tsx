@@ -23,6 +23,7 @@ import {
   type Arm,
 } from "@/lib/ownly/catalog";
 import { logOwnlyEvent } from "@/lib/ownly/track";
+import { STORAGE_KEYS } from "@/lib/constants";
 import { QuestionSheet, type PendingQ } from "./QuestionSheet";
 
 type Screen = "home" | "search" | "list" | "menu" | "delivery" | "cart" | "stop" | "end";
@@ -35,9 +36,22 @@ function lsSet(key: string, val: string) {
   try { localStorage.setItem(key, val); } catch { /* ignore */ }
 }
 
-type Props = { sessionId: string; source: string };
+type Props = {
+  sessionId: string;
+  source: string;
+  username: string;
+  displayName: string;
+  isDirectParticipant?: boolean;
+};
 
-export function OwnlyApp({ sessionId, source }: Props) {
+function logoutOwnly(router: ReturnType<typeof useRouter>) {
+  localStorage.removeItem(STORAGE_KEYS.AUTH);
+  localStorage.removeItem(STORAGE_KEYS.PROFILE);
+  localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+  router.push("/login?next=/ownly");
+}
+
+export function OwnlyApp({ sessionId, source, username, displayName, isDirectParticipant }: Props) {
   const router = useRouter();
   const [screen, setScreen] = useState<Screen>("home");
   const [variant, setVariant] = useState<Arm>("discount");
@@ -60,8 +74,8 @@ export function OwnlyApp({ sessionId, source }: Props) {
   const [ready, setReady] = useState(false);
 
   const track = useCallback((name: string, payload: Record<string, string | number | boolean> = {}) => {
-    void logOwnlyEvent(sessionId, name, { ...payload, screen }, { variant, source });
-  }, [sessionId, variant, source, screen]);
+    void logOwnlyEvent(sessionId, name, { ...payload, screen, username }, { variant, source, username });
+  }, [sessionId, variant, source, screen, username]);
 
   useEffect(() => {
     const v = (lsGet("fd_variant") as Arm) || pickRandom(ARMS);
@@ -102,7 +116,7 @@ export function OwnlyApp({ sessionId, source }: Props) {
   useEffect(() => {
     return () => {
       if (started.current) {
-        void logOwnlyEvent(sessionId, "prototype_exit", { furthest_step: screen, reason: "unmount" }, { variant, source });
+        void logOwnlyEvent(sessionId, "prototype_exit", { furthest_step: screen, reason: "unmount", username }, { variant, source, username });
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -211,7 +225,24 @@ export function OwnlyApp({ sessionId, source }: Props) {
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-[440px] flex-col bg-[#f4f4f2] pb-16">
-      <div className="sticky top-0 z-20 bg-[#fff4d6] px-3 py-1.5 text-center text-[11px] font-extrabold text-[#6a4700]">
+      <div className="sticky top-0 z-30 border-b border-[#e8e8e4] bg-white px-3 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-extrabold text-[#17211d]">{displayName}</p>
+            <p className="text-[10px] font-semibold text-[#888]">
+              {isDirectParticipant ? "Direct Ownly" : "From Rapido"} · @{username}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => logoutOwnly(router)}
+            className="shrink-0 rounded-lg border border-[#ddd] px-3 py-1.5 text-[11px] font-extrabold text-[#555]"
+          >
+            Log out
+          </button>
+        </div>
+      </div>
+      <div className="sticky top-[52px] z-20 bg-[#fff4d6] px-3 py-1.5 text-center text-[11px] font-extrabold text-[#6a4700]">
         Research prototype · not a live order
       </div>
 
@@ -564,11 +595,12 @@ export function OwnlyApp({ sessionId, source }: Props) {
             type="button"
             onClick={() => {
               track("prototype_exit", { furthest_step: "end", completed_posttest: true });
-              router.push("/app");
+              if (isDirectParticipant) logoutOwnly(router);
+              else router.push("/app");
             }}
             className="mt-6 w-full rounded-xl bg-[#17211d] py-3 font-extrabold text-white"
           >
-            Back to Rapido
+            {isDirectParticipant ? "Log out" : "Back to Rapido"}
           </button>
         </div>
       )}

@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, FormEvent } from "react";
-import { useRouter } from "next/navigation";
-import { ADMIN_EMAIL, ADMIN_PASSWORD } from "@/lib/constants";
+import { useState, FormEvent, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ADMIN_EMAIL, ADMIN_PASSWORD, STORAGE_KEYS } from "@/lib/constants";
+import { DIRECT_PARTICIPANT_USERNAME } from "@/lib/ownly/channel";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = searchParams.get("next") || "/app";
   const [mode, setMode] = useState<"select" | "customer" | "admin">("select");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -28,20 +31,39 @@ export default function LoginPage() {
       savedAt: Date.now(),
     };
 
-    localStorage.setItem("ownly_auth", JSON.stringify({
+    localStorage.setItem(STORAGE_KEYS.AUTH, JSON.stringify({
       role: "customer",
       username: username.trim(),
       profile,
     }));
-    localStorage.setItem("ownly_rapido_profile", JSON.stringify(profile));
+    localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(profile));
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
 
-    router.push("/app");
+    router.push(nextPath.startsWith("/") ? nextPath : "/app");
+  };
+
+  const handleDirectOwnlyLogin = () => {
+    const profile = {
+      username: DIRECT_PARTICIPANT_USERNAME,
+      name: DIRECT_PARTICIPANT_USERNAME,
+      phone: "",
+      area: "Gachibowli",
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(STORAGE_KEYS.AUTH, JSON.stringify({
+      role: "customer",
+      username: DIRECT_PARTICIPANT_USERNAME,
+      profile,
+    }));
+    localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(profile));
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION);
+    router.push("/ownly?source=direct");
   };
 
   const handleAdminLogin = (e: FormEvent) => {
     e.preventDefault();
     if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-      localStorage.setItem("ownly_auth", JSON.stringify({
+      localStorage.setItem(STORAGE_KEYS.AUTH, JSON.stringify({
         role: "admin",
         email: ADMIN_EMAIL,
       }));
@@ -76,6 +98,13 @@ export default function LoginPage() {
               className="w-full rounded-2xl bg-white px-6 py-4 text-center text-base font-extrabold text-[#16140F] shadow-lg active:scale-[0.98] transition-transform"
             >
               Admin Login
+            </button>
+            <button
+              type="button"
+              onClick={handleDirectOwnlyLogin}
+              className="w-full rounded-2xl border-2 border-[#16140F] bg-transparent px-6 py-4 text-center text-base font-extrabold text-[#16140F] active:scale-[0.98] transition-transform"
+            >
+              Ownly direct (username: direct)
             </button>
           </div>
         </div>
@@ -125,7 +154,14 @@ export default function LoginPage() {
               type="submit"
               className="w-full rounded-2xl bg-[#16140F] px-6 py-4 text-base font-extrabold text-white shadow-lg active:scale-[0.98] transition-transform"
             >
-              Start Experience
+              {nextPath === "/ownly" ? "Log in to Ownly" : "Start Experience"}
+            </button>
+            <button
+              type="button"
+              onClick={handleDirectOwnlyLogin}
+              className="w-full rounded-2xl border-2 border-[#16140F] bg-white px-6 py-3 text-sm font-extrabold text-[#16140F]"
+            >
+              Or continue as direct
             </button>
           </form>
         </div>
@@ -193,5 +229,13 @@ export default function LoginPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="flex h-full items-center justify-center bg-[#FFC80A] p-6 text-sm font-semibold">Loading…</div>}>
+      <LoginContent />
+    </Suspense>
   );
 }
