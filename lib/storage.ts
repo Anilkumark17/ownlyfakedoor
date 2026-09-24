@@ -138,7 +138,7 @@ export function markExploredOwnly(sessionId: string): BehaviorSession | null {
       {
         type: "explore_ownly",
         at: Date.now(),
-        url: "https://how-youth-order-food.netlify.app/",
+        url: "/ownly",
       },
     ],
   }));

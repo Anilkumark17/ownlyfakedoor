@@ -7,6 +7,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { sessionId } = body;
+    if (!sessionId) return NextResponse.json({ success: true });
 
     await db
       .update(sessions)

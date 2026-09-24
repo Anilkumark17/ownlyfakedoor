@@ -2,12 +2,26 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { answersFromVisit, type QuestionField } from "@/lib/ownly/answers";
 
 type BehaviorEvent = {
   type: string;
   at: number;
   [key: string]: any;
 };
+
+type OwnlyInfo = {
+  id?: number;
+  sessionId?: string;
+  cameFrom: string;
+  source: string;
+  dish: string;
+  restaurantName: string;
+  deliveryId: string;
+  billTotal: number;
+  placedOrder: boolean;
+  createdAt: number;
+} & Record<QuestionField, string>;
 
 type Session = {
   id: string;
@@ -21,6 +35,8 @@ type Session = {
   updatedAt: number;
   exploredOwnly: boolean;
   funnel: Record<string, boolean>;
+  ownly: OwnlyInfo | null;
+  ownlyResponses?: { qId: string; answer: string; subject: string; channel: string; at: number }[];
   events: BehaviorEvent[];
 };
 
@@ -47,11 +63,13 @@ function formatTime(ts: number): string {
 function analyzeJourney(events: BehaviorEvent[]): {
   steps: JourneyStep[];
   ownlyTouchpoints: { source: string; timestamp: number }[];
+  ownlyQuestions: { q: string; answer: string; subject: string; timestamp: number }[];
   totalDuration: number;
   completedRide: boolean;
 } {
   const steps: JourneyStep[] = [];
   const ownlyTouchpoints: { source: string; timestamp: number }[] = [];
+  const ownlyQuestions: { q: string; answer: string; subject: string; timestamp: number }[] = [];
   
   let currentState = "home";
   let stateStartTime = events[0]?.at || Date.now();
@@ -64,6 +82,17 @@ function analyzeJourney(events: BehaviorEvent[]): {
       const source = event.type === "banner_click" ? "banner" : event.adId || "unknown";
       ownlyTouchpoints.push({ source: String(source), timestamp: event.at });
     }
+    if (event.type === "ownly_micro_answer") {
+      ownlyQuestions.push({
+        q: String(event.q_id || event.payload?.q_id || "question"),
+        answer: String(event.answer || event.payload?.answer || ""),
+        subject: String(event.subject || event.payload?.subject || ""),
+        timestamp: event.at,
+      });
+    }
+    if (typeof event.type === "string" && event.type.startsWith("ownly_")) {
+      ownlyTouchpoints.push({ source: event.type.replace("ownly_", ""), timestamp: event.at });
+    }
 
     // Detect state changes
     let newState: string | null = null;
@@ -74,6 +103,14 @@ function analyzeJourney(events: BehaviorEvent[]): {
     if (event.type === "captain_found") newState = "captain_found";
     if (event.type === "ride_started") newState = "ride_started";
     if (event.type === "ride_complete") newState = "ride_complete";
+    if (event.type === "ownly_experiment_view" || event.type === "ownly_landing_page_view") newState = "ownly_home";
+    if (event.type === "ownly_search_tap" || event.type === "ownly_dish_search_view") newState = "ownly_search";
+    if (event.type === "ownly_dish_selected") newState = "ownly_dish";
+    if (event.type === "ownly_restaurant_card_click" || event.type === "ownly_menu_view") newState = "ownly_menu";
+    if (event.type === "ownly_delivery_screen_view") newState = "ownly_delivery";
+    if (event.type === "ownly_cart_view") newState = "ownly_cart";
+    if (event.type === "ownly_place_order_click") newState = "ownly_place_order";
+    if (event.type === "ownly_honest_stop_view") newState = "ownly_stop";
 
     if (newState && newState !== currentState) {
       const duration = event.at - stateStartTime;
@@ -92,6 +129,7 @@ function analyzeJourney(events: BehaviorEvent[]): {
   return {
     steps,
     ownlyTouchpoints,
+    ownlyQuestions,
     totalDuration: lastEvent ? lastEvent.at - events[0].at : 0,
     completedRide: steps.some(s => s.state === "ride_complete"),
   };
@@ -100,6 +138,7 @@ function analyzeJourney(events: BehaviorEvent[]): {
 export default function AdminPage() {
   const router = useRouter();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [visits, setVisits] = useState<OwnlyInfo[]>([]);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [view, setView] = useState<"overview" | "sessions">("overview");
   const [loading, setLoading] = useState(true);
@@ -135,8 +174,11 @@ export default function AdminPage() {
         });
         if (!res.ok) throw new Error("Failed to fetch");
         const data = await res.json();
-        console.log("Fetched sessions:", data.length);
-        setSessions(data);
+        const nextSessions = Array.isArray(data) ? data : data.sessions || [];
+        const nextVisits = Array.isArray(data) ? [] : data.visits || [];
+        console.log("Fetched sessions:", nextSessions.length, "ownly visits:", nextVisits.length);
+        setSessions(nextSessions);
+        setVisits(nextVisits);
         setLoading(false);
       } catch (error) {
         console.error("Failed to fetch sessions:", error);
@@ -155,10 +197,13 @@ export default function AdminPage() {
   };
 
   const exportJson = () => {
-    const data = sessions.map(s => ({
-      ...s,
-      journey: analyzeJourney(s.events),
-    }));
+    const data = {
+      visits,
+      sessions: sessions.map((s) => ({
+        ...s,
+        journey: analyzeJourney(s.events),
+      })),
+    };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -183,6 +228,12 @@ export default function AdminPage() {
 
   // Aggregated metrics
   const totalSessions = sessions.length;
+  const fromRapido = visits.filter((v) => v.cameFrom === "rapido").length;
+  const openedOwnly = visits.length;
+  const placedOrders = visits.filter((v) => v.placedOrder).length;
+  const allAnswers = visits.flatMap((v) =>
+    answersFromVisit(v).map((q) => ({ ...q, cameFrom: v.cameFrom, restaurantName: v.restaurantName, dish: v.dish })),
+  );
   const exploredOwnly = sessions.filter(s => s.exploredOwnly).length;
   const bannerImpressions = sessions.reduce((sum, s) => 
     sum + s.events.filter(e => e.type === "banner_impression").length, 0
@@ -250,11 +301,11 @@ export default function AdminPage() {
           <div className="space-y-4">
             {/* Key Metrics */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-              <Stat label="Total Sessions" value={String(totalSessions)} />
-              <Stat label="Explored Ownly" value={String(exploredOwnly)} accent />
-              <Stat label="Banner CTR" value={`${bannerImpressions ? Math.round(bannerClicks / bannerImpressions * 100) : 0}%`} />
-              <Stat label="Ad Clicks" value={String(ownlyAdClicks)} accent />
-              <Stat label="Completed Rides" value={String(completedRides)} />
+              <Stat label="Rapido sessions" value={String(totalSessions)} />
+              <Stat label="From Rapido" value={String(fromRapido)} accent />
+              <Stat label="Opened Ownly" value={String(openedOwnly)} />
+              <Stat label="Placed order" value={String(placedOrders)} accent />
+              <Stat label="Answers" value={String(allAnswers.length)} />
             </div>
 
             {/* Journey Funnel */}
@@ -293,6 +344,55 @@ export default function AdminPage() {
                     </div>
                   );
                 })}
+              </div>
+            </section>
+
+            <section className="rounded-2xl bg-white p-5 shadow-sm">
+              <h2 className="text-base font-extrabold">Ownly food flow</h2>
+              <div className="mt-4 space-y-3">
+                {[
+                  { label: "Came from Rapido", count: fromRapido },
+                  { label: "Opened Ownly", count: openedOwnly },
+                  { label: "Answered a question", count: visits.filter((v) => answersFromVisit(v).length > 0).length },
+                  { label: "Tapped Place Order", count: placedOrders, highlight: true },
+                ].map((step, i) => {
+                  const percentage = totalSessions ? Math.round((step.count / totalSessions) * 100) : 0;
+                  return (
+                    <div key={i}>
+                      <div className="mb-1 flex items-center justify-between text-sm">
+                        <span className={step.highlight ? "font-extrabold text-[#E91E8C]" : "font-medium"}>
+                          {step.label}
+                        </span>
+                        <span className="font-bold">
+                          {step.count} ({percentage}%)
+                        </span>
+                      </div>
+                      <div className="h-3 overflow-hidden rounded-full bg-[#F0EDE6]">
+                        <div
+                          className={`h-full transition-all duration-500 ${
+                            step.highlight ? "bg-[#E91E8C]" : "bg-[#E2562B]"
+                          }`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="rounded-2xl bg-white p-5 shadow-sm">
+              <h2 className="text-base font-extrabold">Ownly answers ({allAnswers.length})</h2>
+              <div className="mt-3 max-h-96 space-y-2 overflow-y-auto">
+                {allAnswers.length === 0 && (
+                  <p className="text-sm text-[#5C574F]">No Quick one answers yet</p>
+                )}
+                {[...allAnswers].reverse().map((q, i) => (
+                  <div key={`${q.q}-${i}`} className="rounded-xl bg-[#FAF8F3] px-3 py-2">
+                    <p className="text-xs font-bold">{q.question || q.q}{q.subject ? ` · ${q.subject}` : ""}</p>
+                    <p className="text-sm">{q.label || q.answer || "—"}</p>
+                  </div>
+                ))}
               </div>
             </section>
 
@@ -361,7 +461,9 @@ export default function AdminPage() {
                         {formatTime(s.startedAt)} · {s.events.length} events
                       </p>
                       <p className="text-[10px] font-semibold text-[#E91E8C]">
-                        {journey.ownlyTouchpoints.length} Ownly interactions
+                        {s.ownly
+                          ? `${s.ownly.cameFrom}${s.ownly.placedOrder ? " · ordered" : ""}`
+                          : `${journey.ownlyTouchpoints.length} Ownly interactions`}
                       </p>
                     </button>
                   );
@@ -388,6 +490,7 @@ export default function AdminPage() {
 
 function SessionDetail({ session }: { session: Session }) {
   const journey = analyzeJourney(session.events);
+  const ownlyAnswers = session.ownly ? answersFromVisit(session.ownly) : [];
   
   return (
     <div className="space-y-4">
@@ -442,6 +545,69 @@ function SessionDetail({ session }: { session: Session }) {
         </div>
       </div>
 
+      {session.ownly && (
+        <div className="rounded-xl bg-gradient-to-br from-[#FFE5F5] to-[#FFF0FA] p-4">
+          <h4 className="text-sm font-bold text-[#C2185B]">Ownly snapshot</h4>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {[
+              ["Came from", session.ownly.cameFrom],
+              ["Source", session.ownly.source],
+              ["Dish", session.ownly.dish],
+              ["Restaurant", session.ownly.restaurantName],
+              ["Delivery", session.ownly.deliveryId],
+              ["Total", session.ownly.billTotal ? `₹${session.ownly.billTotal}` : ""],
+              ["Placed order", session.ownly.placedOrder ? "yes" : "no"],
+            ].filter(([, value]) => value).map(([label, value]) => (
+              <div key={label} className="rounded-lg bg-white px-3 py-2">
+                <p className="text-[10px] font-bold uppercase text-[#5C574F]">{label}</p>
+                <p className="text-sm font-semibold">{value}</p>
+              </div>
+            ))}
+          </div>
+          {ownlyAnswers.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <p className="text-[10px] font-bold uppercase text-[#5C574F]">
+                Latest answer per question ({ownlyAnswers.length})
+              </p>
+              {ownlyAnswers.map((q) => (
+                <div key={q.q} className="rounded-lg bg-white px-3 py-2">
+                  <p className="text-xs font-bold">{q.question}{q.subject ? ` · ${q.subject}` : ""}</p>
+                  <p className="text-sm">{q.label || q.answer || "—"}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {(session.ownlyResponses?.length ?? 0) > 0 && (
+            <div className="mt-3 space-y-2">
+              <p className="text-[10px] font-bold uppercase text-[#5C574F]">
+                All responses ({session.ownlyResponses!.length})
+              </p>
+              {session.ownlyResponses!.map((r, i) => (
+                <div key={`${r.qId}-${r.at}-${i}`} className="rounded-lg bg-white px-3 py-2">
+                  <p className="text-xs font-bold">{r.qId}{r.subject ? ` · ${r.subject}` : ""} · {r.channel}</p>
+                  <p className="text-sm">{r.answer || "—"}</p>
+                  <p className="text-[10px] text-[#888]">{formatTime(r.at)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!session.ownly && journey.ownlyQuestions.length > 0 && (
+        <div className="rounded-xl bg-white p-4 shadow-sm">
+          <h4 className="text-sm font-bold">Ownly questions ({journey.ownlyQuestions.length})</h4>
+          <div className="mt-3 space-y-2">
+            {journey.ownlyQuestions.map((q, i) => (
+              <div key={i} className="rounded-lg bg-[#FAF8F3] px-3 py-2">
+                <p className="text-xs font-bold">{q.q}{q.subject ? ` · ${q.subject}` : ""}</p>
+                <p className="text-sm">{q.answer || "—"}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Ownly Interactions */}
       {journey.ownlyTouchpoints.length > 0 && (
         <div className="rounded-xl bg-gradient-to-br from-[#FFE5F5] to-[#FFF0FA] p-4">
@@ -471,7 +637,7 @@ function SessionDetail({ session }: { session: Session }) {
                 .filter(([k]) => k !== "type" && k !== "at")
                 .map(([k, v]) => (
                   <span key={k} className="ml-2 text-[#B4EB8B]">
-                    {k}={String(v)}
+                    {k}={typeof v === "object" ? JSON.stringify(v) : String(v)}
                   </span>
                 ))}
             </div>

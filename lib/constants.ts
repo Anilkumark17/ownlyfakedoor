@@ -1,4 +1,4 @@
-export const OWNLY_EXPLORE_URL = "https://how-youth-order-food.netlify.app/";
+export const OWNLY_EXPLORE_URL = "/ownly";
 
 // Admin credentials
 export const ADMIN_EMAIL = "admin@gmail.com";

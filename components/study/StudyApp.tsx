@@ -80,12 +80,17 @@ export function StudyApp() {
     if (!profile.username || profile.username === "Rider") return;
 
     const initSession = async () => {
-      const sid = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      setSessionId(sid);
-
-      console.log("Creating session:", sid, profile);
-
       try {
+        const existing = localStorage.getItem("ownly_active_session");
+        const sid = existing || `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        setSessionId(sid);
+        localStorage.setItem("ownly_active_session", sid);
+
+        if (existing) {
+          console.log("Reusing session:", sid);
+          return;
+        }
+
         const response = await fetch("/api/sessions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -186,10 +191,12 @@ export function StudyApp() {
       await fetch("/api/mark-explored", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
+        body: JSON.stringify({ sessionId, source }),
       });
     }
-    window.location.href = OWNLY_EXPLORE_URL;
+    router.push(
+      `${OWNLY_EXPLORE_URL}?from=${encodeURIComponent(source)}&session=${encodeURIComponent(sessionId)}`
+    );
   };
 
   const handleDestinationSelect = (dest: typeof DESTINATIONS[0]) => {
@@ -226,6 +233,7 @@ export function StudyApp() {
     // Keep showOwnlyInline state so advertisement doesn't reload
     const newSid = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     setSessionId(newSid);
+    localStorage.setItem("ownly_active_session", newSid);
     fetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
