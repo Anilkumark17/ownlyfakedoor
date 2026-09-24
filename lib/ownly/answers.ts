@@ -1,18 +1,18 @@
 import { QBANK } from "./catalog";
 
 export const QUESTION_FIELDS = [
-  { id: "why_offer", field: "whyOffer" },
-  { id: "why_filter", field: "whyFilter" },
-  { id: "why_dish", field: "whyDish" },
-  { id: "why_rest", field: "whyRest" },
-  { id: "app_gap", field: "appGap" },
-  { id: "missing_dish", field: "missingDish" },
-  { id: "missing_action", field: "missingAction" },
-  { id: "why_item", field: "whyItem" },
-  { id: "why_bill", field: "whyBill" },
-  { id: "why_delivery", field: "whyDelivery" },
-  { id: "rapido_link_trust", field: "rapidoLinkTrust" },
-  { id: "meal_slot", field: "mealSlot" },
+  { id: "why_offer", field: "whyThisOffer", question: "Why this offer?" },
+  { id: "why_filter", field: "whatWereYouLookingFor", question: "What were you looking for?" },
+  { id: "why_dish", field: "whyThisDish", question: "Why this dish?" },
+  { id: "why_rest", field: "whyThisRestaurant", question: "Why this restaurant?" },
+  { id: "app_gap", field: "isThisOnYourUsualApp", question: "Is this on the food app you use most?" },
+  { id: "missing_dish", field: "noSuchDishWhatNext", question: "We don't have this dish. What next?" },
+  { id: "missing_action", field: "notHereWhatNext", question: "This isn't here. What next?" },
+  { id: "why_item", field: "whyAddThis", question: "Why add this?" },
+  { id: "why_bill", field: "whyThisWayToPay", question: "Why this way to pay?" },
+  { id: "why_delivery", field: "whyThisDelivery", question: "Why this delivery?" },
+  { id: "rapido_link_trust", field: "worryIfRapidoBringsFood", question: "Any worry if a Rapido rider brings the food?" },
+  { id: "meal_slot", field: "whenDoYouUsuallyOrderThis", question: "When do you usually order this?" },
 ] as const;
 
 export type QuestionId = (typeof QUESTION_FIELDS)[number]["id"];
@@ -30,6 +30,15 @@ export function questionField(id: QuestionId): QuestionField {
   return FIELD_BY_ID[id];
 }
 
+export function labelForAnswer(id: QuestionId, answer: string): string {
+  if (!answer) return "";
+  if (answer === "skipped") return "Skip";
+  const def = QBANK[id];
+  const byCode = def?.opts.find((item) => item.v === answer);
+  if (byCode) return byCode.l;
+  return answer;
+}
+
 export type AnswerVisit = {
   dish?: string;
   restaurantName?: string;
@@ -43,30 +52,16 @@ function subjectFor(id: QuestionId, visit: AnswerVisit): string {
   return "";
 }
 
-export function describeStoredAnswer(id: QuestionId, answer: string, subject: string) {
-  const def = QBANK[id];
-  const question = def
-    ? def.title.replace("{sub}", subject || "this").replace(/\s{2,}/g, " ").trim()
-    : id;
-  if (answer === "skipped" || !answer) {
-    return { question, label: answer === "skipped" ? "Skip" : "" };
-  }
-  const opt = def?.opts.find((item) => item.v === answer);
-  return { question, label: opt?.l || answer };
-}
-
 export function answersFromVisit(visit: AnswerVisit) {
-  return QUESTION_FIELDS.flatMap(({ id, field }) => {
-    const answer = visit[field] || "";
-    if (!answer) return [];
-    const subject = subjectFor(id, visit);
-    const described = describeStoredAnswer(id, answer, subject);
+  return QUESTION_FIELDS.flatMap(({ id, field, question }) => {
+    const stored = visit[field] || "";
+    if (!stored) return [];
     return [{
       q: id,
-      question: described.question,
-      answer,
-      label: described.label,
-      subject,
+      question,
+      answer: stored,
+      label: labelForAnswer(id, stored),
+      subject: subjectFor(id, visit),
     }];
   });
 }

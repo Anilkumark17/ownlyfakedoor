@@ -3,14 +3,13 @@ import { db } from "./index";
 import {
   ownlyDirect,
   ownlyRapido,
-  ownlyResponses,
+  sessions,
   type NewOwnlyDirect,
   type NewOwnlyRapido,
   type OwnlyVisitRow,
 } from "./schema";
-import { isQuestionId, questionField, QUESTION_FIELDS } from "../ownly/answers";
+import { isQuestionId, labelForAnswer, questionField, QUESTION_FIELDS } from "../ownly/answers";
 import { isDirectParticipant, resolveOwnlyChannel, type OwnlyChannel } from "../ownly/channel";
-import { sessions } from "./schema";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -68,12 +67,20 @@ export function serializeVisit(row: OwnlyVisitRow, channel: OwnlyChannel) {
     sessionId: row.sessionId || "",
     cameFrom: channel,
     source: row.source,
+    placedOrder: row.placedOrder,
+    variant: row.variant,
     dish: row.dish,
     restaurantName: row.restaurantName,
     deliveryId: row.deliveryId,
+    billId: row.billId,
+    offerId: row.offerId,
+    filter: row.filter,
+    rlPrice: row.rlPrice,
+    walletAmt: row.walletAmt,
+    protectPrice: row.protectPrice,
     billTotal: row.billTotal,
+    itemCount: row.itemCount,
     ...answers,
-    placedOrder: row.placedOrder,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };
@@ -146,49 +153,36 @@ export async function upsertOwnlyFromEvent(sessionId: string | undefined, event:
 
   const table = visitTable(channel);
   const now = new Date();
+  const offerId = asString(pick(event, "offer") || pick(event, "offer_id"));
+  const filter = name === "filter_tab_click" ? asString(pick(event, "detail")) : "";
   const values: Partial<NewOwnlyRapido & NewOwnlyDirect> = {
     sessionId: sid || row?.sessionId || null,
     source: source || row?.source || "",
+    variant: asString(event.variant) || row?.variant || "",
     dish: asString(pick(event, "dish")) || row?.dish || "",
     restaurantName: asString(pick(event, "restaurant_name")) || row?.restaurantName || "",
     deliveryId: asString(pick(event, "delivery_id")) || row?.deliveryId || "",
+    billId: asString(pick(event, "bill_id")) || row?.billId || "",
+    offerId: offerId || row?.offerId || "",
+    filter: filter || row?.filter || "",
+    rlPrice: asNumber(pick(event, "rl_price")) || row?.rlPrice || 0,
+    walletAmt: asNumber(pick(event, "wallet_amt")) || row?.walletAmt || 0,
+    protectPrice: asNumber(pick(event, "protect_price")) || row?.protectPrice || 0,
     billTotal: asNumber(pick(event, "bill_total")) || row?.billTotal || 0,
+    itemCount: asNumber(pick(event, "n_selected")) || row?.itemCount || 0,
     placedOrder: Boolean(row?.placedOrder || name === "place_order_click"),
     updatedAt: now,
   };
 
-  if (name === "dish_selected" || name === "dish_added_custom") {
-    values.dish = asString(pick(event, "dish")) || values.dish;
-  }
-  if (name === "restaurant_card_click" || name === "restaurant_search_selected") {
-    values.restaurantName = asString(pick(event, "restaurant_name")) || values.restaurantName;
-  }
-  if (name === "delivery_option_chosen" || name === "delivery_confirmed") {
-    values.deliveryId = asString(pick(event, "delivery_id")) || values.deliveryId;
-  }
   if (name === "place_order_click") {
-    values.billTotal = asNumber(pick(event, "bill_total")) || values.billTotal;
     values.placedOrder = true;
   }
 
   if (name === "micro_answer") {
     const qId = asString(pick(event, "q_id"));
     const answer = asString(pick(event, "answer")) || "skipped";
-    const subject = asString(pick(event, "subject"));
-
-    if (sid) {
-      await db.insert(ownlyResponses).values({
-        sessionId: sid,
-        channel,
-        qId,
-        answer,
-        subject,
-        createdAt: now,
-      });
-    }
-
     if (isQuestionId(qId)) {
-      values[questionField(qId)] = answer;
+      values[questionField(qId)] = labelForAnswer(qId, answer);
     }
   }
 

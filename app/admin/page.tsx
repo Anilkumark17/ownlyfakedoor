@@ -15,10 +15,15 @@ type OwnlyInfo = {
   sessionId?: string;
   cameFrom: string;
   source: string;
+  variant: string;
   dish: string;
   restaurantName: string;
   deliveryId: string;
+  billId: string;
+  offerId: string;
+  filter: string;
   billTotal: number;
+  itemCount: number;
   placedOrder: boolean;
   createdAt: number;
 } & Record<QuestionField, string>;
@@ -36,7 +41,6 @@ type Session = {
   exploredOwnly: boolean;
   funnel: Record<string, boolean>;
   ownly: OwnlyInfo | null;
-  ownlyResponses?: { qId: string; answer: string; subject: string; channel: string; at: number }[];
   events: BehaviorEvent[];
 };
 
@@ -552,9 +556,14 @@ function SessionDetail({ session }: { session: Session }) {
             {[
               ["Came from", session.ownly.cameFrom],
               ["Source", session.ownly.source],
+              ["Variant", session.ownly.variant],
               ["Dish", session.ownly.dish],
               ["Restaurant", session.ownly.restaurantName],
               ["Delivery", session.ownly.deliveryId],
+              ["Bill", session.ownly.billId],
+              ["Offer", session.ownly.offerId],
+              ["Filter", session.ownly.filter],
+              ["Items", session.ownly.itemCount ? String(session.ownly.itemCount) : ""],
               ["Total", session.ownly.billTotal ? `₹${session.ownly.billTotal}` : ""],
               ["Placed order", session.ownly.placedOrder ? "yes" : "no"],
             ].filter(([, value]) => value).map(([label, value]) => (
@@ -573,20 +582,6 @@ function SessionDetail({ session }: { session: Session }) {
                 <div key={q.q} className="rounded-lg bg-white px-3 py-2">
                   <p className="text-xs font-bold">{q.question}{q.subject ? ` · ${q.subject}` : ""}</p>
                   <p className="text-sm">{q.label || q.answer || "—"}</p>
-                </div>
-              ))}
-            </div>
-          )}
-          {(session.ownlyResponses?.length ?? 0) > 0 && (
-            <div className="mt-3 space-y-2">
-              <p className="text-[10px] font-bold uppercase text-[#5C574F]">
-                All responses ({session.ownlyResponses!.length})
-              </p>
-              {session.ownlyResponses!.map((r, i) => (
-                <div key={`${r.qId}-${r.at}-${i}`} className="rounded-lg bg-white px-3 py-2">
-                  <p className="text-xs font-bold">{r.qId}{r.subject ? ` · ${r.subject}` : ""} · {r.channel}</p>
-                  <p className="text-sm">{r.answer || "—"}</p>
-                  <p className="text-[10px] text-[#888]">{formatTime(r.at)}</p>
                 </div>
               ))}
             </div>

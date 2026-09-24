@@ -1,279 +1,370 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import { neon } from "@neondatabase/serverless";
-import { QUESTION_FIELDS, isQuestionId } from "../lib/ownly/answers";
+import {
+  ARMS,
+  BILLS,
+  DELIVERY,
+  DISHES,
+  OFFERS,
+  QBANK,
+  RESTAURANTS,
+  RL_PRICES,
+  WALLET_AMOUNTS,
+  PROTECT_PRICES,
+} from "../lib/ownly/catalog";
+import { QUESTION_FIELDS } from "../lib/ownly/answers";
 import { RAPIDO_SOURCES } from "../lib/ownly/channel";
 
+dotenv.config({ path: ".env.local" });
+dotenv.config();
+
 const sql = neon(process.env.DATABASE_URL!);
+
+const VISIT_DDL = `
+  id SERIAL PRIMARY KEY,
+  session_id TEXT,
+  source TEXT NOT NULL DEFAULT '',
+  placed_order BOOLEAN NOT NULL DEFAULT FALSE,
+  variant TEXT NOT NULL DEFAULT '',
+  dish TEXT NOT NULL DEFAULT '',
+  restaurant_name TEXT NOT NULL DEFAULT '',
+  delivery_id TEXT NOT NULL DEFAULT '',
+  bill_id TEXT NOT NULL DEFAULT '',
+  offer_id TEXT NOT NULL DEFAULT '',
+  filter TEXT NOT NULL DEFAULT '',
+  rl_price INTEGER NOT NULL DEFAULT 0,
+  wallet_amt INTEGER NOT NULL DEFAULT 0,
+  protect_price INTEGER NOT NULL DEFAULT 0,
+  bill_total INTEGER NOT NULL DEFAULT 0,
+  item_count INTEGER NOT NULL DEFAULT 0,
+  why_this_offer TEXT NOT NULL DEFAULT '',
+  what_were_you_looking_for TEXT NOT NULL DEFAULT '',
+  why_this_dish TEXT NOT NULL DEFAULT '',
+  why_this_restaurant TEXT NOT NULL DEFAULT '',
+  is_this_on_your_usual_app TEXT NOT NULL DEFAULT '',
+  no_such_dish_what_next TEXT NOT NULL DEFAULT '',
+  not_here_what_next TEXT NOT NULL DEFAULT '',
+  why_add_this TEXT NOT NULL DEFAULT '',
+  why_this_way_to_pay TEXT NOT NULL DEFAULT '',
+  why_this_delivery TEXT NOT NULL DEFAULT '',
+  worry_if_rapido_brings_food TEXT NOT NULL DEFAULT '',
+  when_do_you_usually_order_this TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+`;
+
+const NEW_COLUMNS = [
+  ["variant", "TEXT NOT NULL DEFAULT ''"],
+  ["bill_id", "TEXT NOT NULL DEFAULT ''"],
+  ["offer_id", "TEXT NOT NULL DEFAULT ''"],
+  ["filter", "TEXT NOT NULL DEFAULT ''"],
+  ["rl_price", "INTEGER NOT NULL DEFAULT 0"],
+  ["wallet_amt", "INTEGER NOT NULL DEFAULT 0"],
+  ["protect_price", "INTEGER NOT NULL DEFAULT 0"],
+  ["item_count", "INTEGER NOT NULL DEFAULT 0"],
+  ["why_this_offer", "TEXT NOT NULL DEFAULT ''"],
+  ["what_were_you_looking_for", "TEXT NOT NULL DEFAULT ''"],
+  ["why_this_dish", "TEXT NOT NULL DEFAULT ''"],
+  ["why_this_restaurant", "TEXT NOT NULL DEFAULT ''"],
+  ["is_this_on_your_usual_app", "TEXT NOT NULL DEFAULT ''"],
+  ["no_such_dish_what_next", "TEXT NOT NULL DEFAULT ''"],
+  ["not_here_what_next", "TEXT NOT NULL DEFAULT ''"],
+  ["why_add_this", "TEXT NOT NULL DEFAULT ''"],
+  ["why_this_way_to_pay", "TEXT NOT NULL DEFAULT ''"],
+  ["why_this_delivery", "TEXT NOT NULL DEFAULT ''"],
+  ["worry_if_rapido_brings_food", "TEXT NOT NULL DEFAULT ''"],
+  ["when_do_you_usually_order_this", "TEXT NOT NULL DEFAULT ''"],
+] as const;
+
+const OLD_COLUMNS = [
+  "why_offer",
+  "why_filter",
+  "why_dish",
+  "why_rest",
+  "app_gap",
+  "missing_dish",
+  "missing_action",
+  "why_item",
+  "why_bill",
+  "why_delivery",
+  "rapido_link_trust",
+  "meal_slot",
+];
+
+const FILTERS = ["offers", "fast", "rated"] as const;
+
+function pick<T>(arr: readonly T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 function channelForSource(source: string, cameFrom: string) {
   if (RAPIDO_SOURCES.has(source) || cameFrom === "rapido") return "rapido";
   return "direct";
 }
 
-function answersFromQuestions(raw: unknown) {
-  const answers = Object.fromEntries(QUESTION_FIELDS.map(({ id }) => [id, ""]));
-  if (!Array.isArray(raw)) return answers;
-  for (const item of raw) {
-    const q = String(item?.q || "");
-    if (!isQuestionId(q)) continue;
-    answers[q] = String(item?.answer || "skipped");
-  }
-  return answers;
+function randomVisit(channel: "rapido" | "direct", source: string) {
+  const dish = pick(DISHES);
+  const matches = RESTAURANTS.filter((r) => r.cu === dish.cu);
+  const restaurant = pick(matches.length ? matches : RESTAURANTS);
+  const delivery = pick(DELIVERY);
+  const bill = pick(BILLS);
+  const offer = pick(OFFERS);
+  const itemCount = 1 + Math.floor(Math.random() * 3);
+  const billTotal = 180 + Math.floor(Math.random() * 420);
+  const answers = Object.fromEntries(
+    QUESTION_FIELDS.map(({ id }) => [id, pick(QBANK[id].opts).l]),
+  );
+  return {
+    source: source || (channel === "rapido" ? "banner" : "direct"),
+    placed_order: Math.random() > 0.45,
+    variant: pick(ARMS),
+    dish: dish.n,
+    restaurant_name: restaurant.n,
+    delivery_id: delivery.id,
+    bill_id: bill.id,
+    offer_id: offer.id,
+    filter: pick(FILTERS),
+    rl_price: pick(RL_PRICES),
+    wallet_amt: pick(WALLET_AMOUNTS),
+    protect_price: pick(PROTECT_PRICES),
+    bill_total: billTotal,
+    item_count: itemCount,
+    why_this_offer: answers.why_offer,
+    what_were_you_looking_for: answers.why_filter,
+    why_this_dish: answers.why_dish,
+    why_this_restaurant: answers.why_rest,
+    is_this_on_your_usual_app: answers.app_gap,
+    no_such_dish_what_next: answers.missing_dish,
+    not_here_what_next: answers.missing_action,
+    why_add_this: answers.why_item,
+    why_this_way_to_pay: answers.why_bill,
+    why_this_delivery: answers.why_delivery,
+    worry_if_rapido_brings_food: answers.rapido_link_trust,
+    when_do_you_usually_order_this: answers.meal_slot,
+  };
 }
 
-async function createVisitTables() {
-  const ddl = `
-    id SERIAL PRIMARY KEY,
-    session_id TEXT,
-    source TEXT NOT NULL DEFAULT '',
-    dish TEXT NOT NULL DEFAULT '',
-    restaurant_name TEXT NOT NULL DEFAULT '',
-    delivery_id TEXT NOT NULL DEFAULT '',
-    bill_total INTEGER NOT NULL DEFAULT 0,
-    why_offer TEXT NOT NULL DEFAULT '',
-    why_filter TEXT NOT NULL DEFAULT '',
-    why_dish TEXT NOT NULL DEFAULT '',
-    why_rest TEXT NOT NULL DEFAULT '',
-    app_gap TEXT NOT NULL DEFAULT '',
-    missing_dish TEXT NOT NULL DEFAULT '',
-    missing_action TEXT NOT NULL DEFAULT '',
-    why_item TEXT NOT NULL DEFAULT '',
-    why_bill TEXT NOT NULL DEFAULT '',
-    why_delivery TEXT NOT NULL DEFAULT '',
-    rapido_link_trust TEXT NOT NULL DEFAULT '',
-    meal_slot TEXT NOT NULL DEFAULT '',
-    placed_order BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+async function columnExists(table: string, column: string) {
+  const rows = await sql`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = ${table} AND column_name = ${column}
   `;
-  await sql.query(`CREATE TABLE IF NOT EXISTS ownly_rapido (${ddl})`);
-  await sql.query(`CREATE TABLE IF NOT EXISTS ownly_direct (${ddl})`);
+  return rows.length > 0;
+}
+
+async function tableExists(table: string) {
+  const rows = await sql`
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = ${table}
+  `;
+  return rows.length > 0;
+}
+
+async function addNewColumns(table: "ownly_rapido" | "ownly_direct") {
+  for (const [name, type] of NEW_COLUMNS) {
+    await sql.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${name} ${type}`);
+  }
+}
+
+async function dropOldColumns(table: "ownly_rapido" | "ownly_direct") {
+  for (const name of OLD_COLUMNS) {
+    await sql.query(`ALTER TABLE ${table} DROP COLUMN IF EXISTS ${name}`);
+  }
+}
+
+async function fillRandom(table: "ownly_rapido" | "ownly_direct", channel: "rapido" | "direct") {
+  const rows = await sql.query(`SELECT id, source FROM ${table}`);
+  for (const row of rows) {
+    const sample = randomVisit(channel, String(row.source || ""));
+    await sql.query(
+      `UPDATE ${table} SET
+        source = $1,
+        placed_order = $2,
+        variant = $3,
+        dish = $4,
+        restaurant_name = $5,
+        delivery_id = $6,
+        bill_id = $7,
+        offer_id = $8,
+        filter = $9,
+        rl_price = $10,
+        wallet_amt = $11,
+        protect_price = $12,
+        bill_total = $13,
+        item_count = $14,
+        why_this_offer = $15,
+        what_were_you_looking_for = $16,
+        why_this_dish = $17,
+        why_this_restaurant = $18,
+        is_this_on_your_usual_app = $19,
+        no_such_dish_what_next = $20,
+        not_here_what_next = $21,
+        why_add_this = $22,
+        why_this_way_to_pay = $23,
+        why_this_delivery = $24,
+        worry_if_rapido_brings_food = $25,
+        when_do_you_usually_order_this = $26,
+        updated_at = NOW()
+      WHERE id = $27`,
+      [
+        sample.source,
+        sample.placed_order,
+        sample.variant,
+        sample.dish,
+        sample.restaurant_name,
+        sample.delivery_id,
+        sample.bill_id,
+        sample.offer_id,
+        sample.filter,
+        sample.rl_price,
+        sample.wallet_amt,
+        sample.protect_price,
+        sample.bill_total,
+        sample.item_count,
+        sample.why_this_offer,
+        sample.what_were_you_looking_for,
+        sample.why_this_dish,
+        sample.why_this_restaurant,
+        sample.is_this_on_your_usual_app,
+        sample.no_such_dish_what_next,
+        sample.not_here_what_next,
+        sample.why_add_this,
+        sample.why_this_way_to_pay,
+        sample.why_this_delivery,
+        sample.worry_if_rapido_brings_food,
+        sample.when_do_you_usually_order_this,
+        row.id,
+      ],
+    );
+  }
+  return rows.length;
+}
+
+async function copyLegacyOwnly() {
+  if (!(await tableExists("ownly"))) return 0;
+  const [{ count: rapidoCount }] = await sql`SELECT COUNT(*)::int AS count FROM ownly_rapido`;
+  const [{ count: directCount }] = await sql`SELECT COUNT(*)::int AS count FROM ownly_direct`;
+  if (rapidoCount > 0 || directCount > 0) return 0;
+
+  const rows = await sql`SELECT * FROM ownly`;
+  for (const row of rows) {
+    const source = String(row.source || "");
+    const channel = channelForSource(source, String(row.came_from || "direct")) as "rapido" | "direct";
+    const sample = randomVisit(channel, source);
+    const created = row.created_at ? new Date(row.created_at as string | Date) : new Date();
+    const table = channel === "rapido" ? "ownly_rapido" : "ownly_direct";
+    await sql.query(
+      `INSERT INTO ${table} (
+        session_id, source, placed_order, variant, dish, restaurant_name, delivery_id,
+        bill_id, offer_id, filter, rl_price, wallet_amt, protect_price, bill_total, item_count,
+        why_this_offer, what_were_you_looking_for, why_this_dish, why_this_restaurant,
+        is_this_on_your_usual_app, no_such_dish_what_next, not_here_what_next, why_add_this,
+        why_this_way_to_pay, why_this_delivery, worry_if_rapido_brings_food, when_do_you_usually_order_this,
+        created_at, updated_at
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29
+      )`,
+      [
+        row.session_id,
+        sample.source,
+        row.placed_order ?? sample.placed_order,
+        sample.variant,
+        row.dish || sample.dish,
+        row.restaurant_name || sample.restaurant_name,
+        row.delivery_id || sample.delivery_id,
+        sample.bill_id,
+        sample.offer_id,
+        sample.filter,
+        sample.rl_price,
+        sample.wallet_amt,
+        sample.protect_price,
+        row.bill_total || sample.bill_total,
+        sample.item_count,
+        sample.why_this_offer,
+        sample.what_were_you_looking_for,
+        sample.why_this_dish,
+        sample.why_this_restaurant,
+        sample.is_this_on_your_usual_app,
+        sample.no_such_dish_what_next,
+        sample.not_here_what_next,
+        sample.why_add_this,
+        sample.why_this_way_to_pay,
+        sample.why_this_delivery,
+        sample.worry_if_rapido_brings_food,
+        sample.when_do_you_usually_order_this,
+        created,
+        new Date(),
+      ],
+    );
+  }
+  return rows.length;
 }
 
 async function migrate() {
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id SERIAL PRIMARY KEY,
-        session_id TEXT NOT NULL UNIQUE,
-        rider_email TEXT NOT NULL,
-        profile_name TEXT NOT NULL,
-        profile_phone TEXT NOT NULL,
-        profile_area TEXT NOT NULL,
-        started_at TIMESTAMP NOT NULL,
-        updated_at TIMESTAMP NOT NULL,
-        explored_ownly BOOLEAN DEFAULT FALSE,
-        funnel JSONB NOT NULL
-      )
-    `;
-
-    await sql`
-      CREATE TABLE IF NOT EXISTS events (
-        id SERIAL PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        event_type TEXT NOT NULL,
-        event_data JSONB NOT NULL,
-        timestamp TIMESTAMP NOT NULL
-      )
-    `;
-
-    await createVisitTables();
-
-    await sql`
-      CREATE TABLE IF NOT EXISTS ownly_responses (
-        id SERIAL PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        channel TEXT NOT NULL,
-        q_id TEXT NOT NULL,
-        answer TEXT NOT NULL,
-        subject TEXT NOT NULL DEFAULT '',
-        created_at TIMESTAMP NOT NULL DEFAULT NOW()
-      )
-    `;
-
-    await sql`
-      CREATE TABLE IF NOT EXISTS ownly (
-        id SERIAL PRIMARY KEY,
-        session_id TEXT,
-        came_from TEXT NOT NULL DEFAULT 'direct',
-        source TEXT NOT NULL DEFAULT '',
-        dish TEXT NOT NULL DEFAULT '',
-        restaurant_name TEXT NOT NULL DEFAULT '',
-        delivery_id TEXT NOT NULL DEFAULT '',
-        bill_total INTEGER NOT NULL DEFAULT 0,
-        why_offer TEXT NOT NULL DEFAULT '',
-        why_filter TEXT NOT NULL DEFAULT '',
-        why_dish TEXT NOT NULL DEFAULT '',
-        why_rest TEXT NOT NULL DEFAULT '',
-        app_gap TEXT NOT NULL DEFAULT '',
-        missing_dish TEXT NOT NULL DEFAULT '',
-        missing_action TEXT NOT NULL DEFAULT '',
-        why_item TEXT NOT NULL DEFAULT '',
-        why_bill TEXT NOT NULL DEFAULT '',
-        why_delivery TEXT NOT NULL DEFAULT '',
-        rapido_link_trust TEXT NOT NULL DEFAULT '',
-        meal_slot TEXT NOT NULL DEFAULT '',
-        placed_order BOOLEAN NOT NULL DEFAULT FALSE,
-        created_at TIMESTAMP NOT NULL DEFAULT NOW()
-      )
-    `;
-
-    const legacyOwnly = await sql`
-      SELECT EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'ownly'
-      ) AS ok
-    `;
-    if (legacyOwnly[0]?.ok) {
-      const hasQuestions = await sql`
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'ownly' AND column_name = 'questions'
-      `;
-      if (hasQuestions.length) {
-        const rows = await sql`SELECT id, source, came_from, questions FROM ownly`;
-        for (const row of rows) {
-          const source = String(row.source || "");
-          const cameFrom = channelForSource(source, String(row.came_from || ""));
-          const answers = answersFromQuestions(row.questions);
-          await sql`
-            UPDATE ownly SET
-              came_from = ${cameFrom},
-              why_offer = ${answers.why_offer},
-              why_filter = ${answers.why_filter},
-              why_dish = ${answers.why_dish},
-              why_rest = ${answers.why_rest},
-              app_gap = ${answers.app_gap},
-              missing_dish = ${answers.missing_dish},
-              missing_action = ${answers.missing_action},
-              why_item = ${answers.why_item},
-              why_bill = ${answers.why_bill},
-              why_delivery = ${answers.why_delivery},
-              rapido_link_trust = ${answers.rapido_link_trust},
-              meal_slot = ${answers.meal_slot}
-            WHERE id = ${row.id}
-          `;
-        }
-        await sql`ALTER TABLE ownly DROP COLUMN IF EXISTS questions`;
-      }
-
-      const [{ count: rapidoCount }] = await sql`SELECT COUNT(*)::int AS count FROM ownly_rapido`;
-      const [{ count: directCount }] = await sql`SELECT COUNT(*)::int AS count FROM ownly_direct`;
-      const rows =
-        rapidoCount === 0 && directCount === 0 ? await sql`SELECT * FROM ownly` : [];
-
-      let moved = 0;
-      for (const row of rows) {
-        const source = String(row.source || "");
-        const channel = channelForSource(source, String(row.came_from || "direct"));
-        const created = row.created_at ? new Date(row.created_at as string | Date) : new Date();
-        const updated = row.updated_at ? new Date(row.updated_at as string | Date) : created;
-        const payload = {
-          session_id: row.session_id,
-          source: row.source,
-          dish: row.dish,
-          restaurant_name: row.restaurant_name,
-          delivery_id: row.delivery_id,
-          bill_total: row.bill_total,
-          why_offer: row.why_offer,
-          why_filter: row.why_filter,
-          why_dish: row.why_dish,
-          why_rest: row.why_rest,
-          app_gap: row.app_gap,
-          missing_dish: row.missing_dish,
-          missing_action: row.missing_action,
-          why_item: row.why_item,
-          why_bill: row.why_bill,
-          why_delivery: row.why_delivery,
-          rapido_link_trust: row.rapido_link_trust,
-          meal_slot: row.meal_slot,
-          placed_order: row.placed_order,
-          created_at: created,
-          updated_at: updated,
-        };
-        if (channel === "rapido") {
-          await sql`
-            INSERT INTO ownly_rapido (
-              session_id, source, dish, restaurant_name, delivery_id, bill_total,
-              why_offer, why_filter, why_dish, why_rest, app_gap, missing_dish, missing_action,
-              why_item, why_bill, why_delivery, rapido_link_trust, meal_slot, placed_order,
-              created_at, updated_at
-            ) VALUES (
-              ${payload.session_id}, ${payload.source}, ${payload.dish}, ${payload.restaurant_name},
-              ${payload.delivery_id}, ${payload.bill_total},
-              ${payload.why_offer}, ${payload.why_filter}, ${payload.why_dish}, ${payload.why_rest},
-              ${payload.app_gap}, ${payload.missing_dish}, ${payload.missing_action},
-              ${payload.why_item}, ${payload.why_bill}, ${payload.why_delivery},
-              ${payload.rapido_link_trust}, ${payload.meal_slot}, ${payload.placed_order},
-              ${payload.created_at}, ${payload.updated_at}
-            )
-          `;
-        } else {
-          await sql`
-            INSERT INTO ownly_direct (
-              session_id, source, dish, restaurant_name, delivery_id, bill_total,
-              why_offer, why_filter, why_dish, why_rest, app_gap, missing_dish, missing_action,
-              why_item, why_bill, why_delivery, rapido_link_trust, meal_slot, placed_order,
-              created_at, updated_at
-            ) VALUES (
-              ${payload.session_id}, ${payload.source}, ${payload.dish}, ${payload.restaurant_name},
-              ${payload.delivery_id}, ${payload.bill_total},
-              ${payload.why_offer}, ${payload.why_filter}, ${payload.why_dish}, ${payload.why_rest},
-              ${payload.app_gap}, ${payload.missing_dish}, ${payload.missing_action},
-              ${payload.why_item}, ${payload.why_bill}, ${payload.why_delivery},
-              ${payload.rapido_link_trust}, ${payload.meal_slot}, ${payload.placed_order},
-              ${payload.created_at}, ${payload.updated_at}
-            )
-          `;
-        }
-        moved++;
-      }
-      if (moved) console.log(`✅ Migrated ${moved} legacy ownly rows → rapido/direct tables`);
-    }
-
-    const [{ count: responseCount }] = await sql`SELECT COUNT(*)::int AS count FROM ownly_responses`;
-    const microEvents =
-      responseCount === 0
-        ? await sql`
-            SELECT session_id, event_data, timestamp FROM events
-            WHERE event_type = 'ownly_micro_answer'
-          `
-        : [];
-
-    let backfilled = 0;
-    for (const ev of microEvents) {
-      const data = ev.event_data as Record<string, unknown>;
-      const payload = (data.payload || {}) as Record<string, unknown>;
-      const qId = String(data.q_id || payload.q_id || "");
-      if (!qId) continue;
-      const source = String(data.source || payload.source || "");
-      const channel = channelForSource(source, "");
-      await sql`
-        INSERT INTO ownly_responses (session_id, channel, q_id, answer, subject, created_at)
-        VALUES (
-          ${ev.session_id},
-          ${channel},
-          ${qId},
-          ${String(data.answer || payload.answer || "skipped")},
-          ${String(data.subject || payload.subject || "")},
-          ${ev.timestamp}
-        )
-      `;
-      backfilled++;
-    }
-    if (backfilled) console.log(`✅ Backfilled ${backfilled} ownly_responses from events`);
-
-    await sql`CREATE INDEX IF NOT EXISTS idx_sessions_session_id ON sessions(session_id)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_ownly_rapido_session_id ON ownly_rapido(session_id)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_ownly_direct_session_id ON ownly_direct(session_id)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_ownly_responses_session_id ON ownly_responses(session_id)`;
-
-    console.log("✅ Database migration completed successfully!");
-  } catch (error) {
-    console.error("❌ Migration failed:", error);
-    throw error;
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is missing. Set it in .env.local");
   }
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id SERIAL PRIMARY KEY,
+      session_id TEXT NOT NULL UNIQUE,
+      rider_email TEXT NOT NULL,
+      profile_name TEXT NOT NULL,
+      profile_phone TEXT NOT NULL,
+      profile_area TEXT NOT NULL,
+      started_at TIMESTAMP NOT NULL,
+      updated_at TIMESTAMP NOT NULL,
+      explored_ownly BOOLEAN DEFAULT FALSE,
+      funnel JSONB NOT NULL
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS events (
+      id SERIAL PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      event_data JSONB NOT NULL,
+      timestamp TIMESTAMP NOT NULL
+    )
+  `;
+
+  await sql.query(`CREATE TABLE IF NOT EXISTS ownly_rapido (${VISIT_DDL})`);
+  await sql.query(`CREATE TABLE IF NOT EXISTS ownly_direct (${VISIT_DDL})`);
+
+  await addNewColumns("ownly_rapido");
+  await addNewColumns("ownly_direct");
+
+  const moved = await copyLegacyOwnly();
+  if (moved) console.log(`Moved ${moved} legacy ownly rows`);
+
+  const needsSample =
+    (await columnExists("ownly_rapido", "why_offer")) ||
+    (await columnExists("ownly_direct", "why_offer"));
+
+  if (needsSample) {
+    const rapido = await fillRandom("ownly_rapido", "rapido");
+    const direct = await fillRandom("ownly_direct", "direct");
+    console.log(`Filled random catalog answers on ${rapido} rapido rows and ${direct} direct rows`);
+  }
+
+  await dropOldColumns("ownly_rapido");
+  await dropOldColumns("ownly_direct");
+
+  await sql`DROP TABLE IF EXISTS ownly_responses`;
+  await sql`DROP TABLE IF EXISTS ownly`;
+
+  await sql`CREATE INDEX IF NOT EXISTS idx_sessions_session_id ON sessions(session_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_events_session_id ON events(session_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_ownly_rapido_session_id ON ownly_rapido(session_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_ownly_direct_session_id ON ownly_direct(session_id)`;
+
+  console.log("Database migration completed");
 }
 
-migrate();
+migrate().catch((error) => {
+  console.error("Migration failed:", error);
+  process.exit(1);
+});
